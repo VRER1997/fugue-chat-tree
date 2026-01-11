@@ -36,7 +36,7 @@ export const SettingsModal = ({ isOpen, onClose }: SettingsModalProps) => {
 
     return (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4 animate-in fade-in duration-200">
-            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl overflow-hidden flex flex-col md:flex-row h-[600px]">
+            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl overflow-hidden flex flex-col md:flex-row max-h-[90vh] h-auto md:h-[600px]">
                 {/* Sidebar */}
                 <div className="w-full md:w-64 bg-slate-50 border-r border-slate-200 p-4 flex flex-col gap-2">
                     <div className="text-sm font-bold text-slate-400 mb-2 uppercase tracking-wider px-2">Settings</div>
