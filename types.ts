@@ -8,6 +8,7 @@ export interface ChatNodeData extends Record<string, unknown> {
   onBranch: (text: string, sourceNodeId: string) => void;
   inputText?: string;
   aiResponse?: string;
+  highlights?: string[];
 }
 
 export type ChatNodeType = Node<ChatNodeData>;
