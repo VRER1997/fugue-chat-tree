@@ -1,0 +1,5 @@
+{
+  "name": "Chat Tree",
+  "description": "An infinite canvas conversation tool where you can branch new chats by quoting AI responses.",
+  "requestFramePermissions": []
+}
