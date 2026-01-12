@@ -1,7 +1,7 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react';
 import ReactMarkdown from 'react-markdown';
 import { Handle, Position, NodeProps, useReactFlow } from '@xyflow/react';
-import { MessageSquareQuote, Send, Sparkles, Trash2, ChevronsDown, ChevronsUp, GitFork, Globe } from 'lucide-react';
+import { MessageSquareQuote, Send, Sparkles, Trash2, ChevronsDown, ChevronsUp, GitFork, Globe, Brain } from 'lucide-react';
 import OpenAI from 'openai';
 import remarkMath from 'remark-math';
 import remarkGfm from 'remark-gfm';
@@ -20,6 +20,8 @@ export const ChatNode = ({ id, data, isConnectable }: NodeProps<ChatNodeData>) =
   const [isGenerating, setIsGenerating] = useState(false);
   const [isResponseCollapsed, setIsResponseCollapsed] = useState(false);
   const [isSearchEnabled, setIsSearchEnabled] = useState(false);
+  const [reasoningMode, setReasoningMode] = useState<NonNullable<ChatNodeData['reasoningMode']>>((data.reasoningMode as any) || 'off');
+  const [showReasoningMenu, setShowReasoningMenu] = useState(false);
 
   // Selection State
   const [showQuoteBtn, setShowQuoteBtn] = useState(false);
@@ -27,8 +29,16 @@ export const ChatNode = ({ id, data, isConnectable }: NodeProps<ChatNodeData>) =
 
   const responseRef = useRef<HTMLDivElement>(null);
   const nodeRef = useRef<HTMLDivElement>(null);
+  const reasoningMenuRef = useRef<HTMLDivElement>(null);
+  const reasoningToggleRef = useRef<HTMLButtonElement>(null);
 
   // Sync State with Data Props (Crucial for Loading from JSON)
+  useEffect(() => {
+    if (data.reasoningMode !== undefined) {
+      setReasoningMode(prev => prev !== data.reasoningMode ? (data.reasoningMode as any) : prev);
+    }
+  }, [data.reasoningMode]);
+
   useEffect(() => {
     if (data.inputText !== undefined) {
       setInputText(prev => prev !== data.inputText ? (data.inputText as string) : prev);
@@ -41,6 +51,26 @@ export const ChatNode = ({ id, data, isConnectable }: NodeProps<ChatNodeData>) =
     }
   }, [data.aiResponse]);
 
+  // Handle click outside reasoning menu
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (
+        showReasoningMenu &&
+        reasoningMenuRef.current &&
+        !reasoningMenuRef.current.contains(event.target as Node) &&
+        reasoningToggleRef.current &&
+        !reasoningToggleRef.current.contains(event.target as Node)
+      ) {
+        setShowReasoningMenu(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [showReasoningMenu]);
+
   // Real AI generation
   const handleGenerate = async () => {
     if (!inputText.trim()) return;
@@ -51,7 +81,7 @@ export const ChatNode = ({ id, data, isConnectable }: NodeProps<ChatNodeData>) =
     setShowQuoteBtn(false);
 
     // Sync input text to node data for future context
-    updateNodeData(id, { inputText: inputText });
+    updateNodeData(id, { inputText: inputText, reasoningMode: reasoningMode });
 
     try {
       const storedKey = localStorage.getItem('gemini_api_key');
@@ -129,6 +159,44 @@ export const ChatNode = ({ id, data, isConnectable }: NodeProps<ChatNodeData>) =
         messages: messages,
         stream: true,
       };
+
+      // Add Reasoning Parameters (Simulated via extra_body for OpenRouter/DeepSeek/etc)
+      if (reasoningMode !== 'off') {
+        // This structure mimics how some providers (like OpenRouter for DeepSeek-R1) accept reasoning params
+        // or generic thinking parameters.
+        // Adjust based on the actual target API. Assuming a generic "thinking" object or similar.
+        // For now, we will add it to extra_body.
+        const budgetMap = {
+          'light': 1024,
+          'medium': 4096,
+          'heavy': 16384,
+          'auto': 0 // 0 might mean auto or let provider decide
+        };
+
+        const budget = budgetMap[reasoningMode];
+
+        if (!completionParams.extra_body) completionParams.extra_body = {};
+
+        if (reasoningMode === 'auto') {
+          // Some providers use specific flags for auto
+          completionParams.extra_body = {
+            ...completionParams.extra_body,
+            include_reasoning: true
+          };
+        } else {
+          // Example for DeepSeek-R1 on some providers
+          completionParams.extra_body = {
+            ...completionParams.extra_body,
+            top_k: 50, // Example param
+            thinking: {
+              budget: budget,
+              type: "enabled"
+            },
+            // Include standard field if supported
+            include_reasoning: true
+          };
+        }
+      }
 
       // Add Gemini-specific search tool if search is enabled
       // This is a best-effort attempt to enable search on compatible models (like Gemini)
@@ -341,7 +409,7 @@ INSTRUCTIONS:
   return (
     <div
       ref={nodeRef}
-      className="bg-white rounded-xl shadow-lg border border-slate-200 w-[412px] overflow-hidden flex flex-col transition-shadow duration-200 hover:shadow-xl relative group"
+      className="bg-white rounded-xl shadow-lg border border-slate-200 w-[412px] flex flex-col transition-shadow duration-200 hover:shadow-xl relative group"
     >
       {/* Target Handle (Input) - Not for root */}
       {!data.isRoot && (
@@ -390,7 +458,7 @@ INSTRUCTIONS:
 
       {/* Header: Quote Section (if exists) */}
       {data.quote && (
-        <div className="bg-slate-50 p-3 pr-24 border-b border-slate-100 flex gap-2 items-start text-xs text-slate-600 italic">
+        <div className="bg-slate-50 p-3 pr-24 border-b border-slate-100 flex gap-2 items-start text-xs text-slate-600 italic rounded-t-xl">
           <MessageSquareQuote className="w-4 h-4 text-slate-400 shrink-0 mt-0.5" />
           <div className="line-clamp-3">"{data.quote}"</div>
         </div>
@@ -413,7 +481,46 @@ INSTRUCTIONS:
             }
           }}
         />
-        <div className="flex gap-2 items-center">
+        <div className="flex gap-2 items-center relative">
+          {/* Reasoning Menu */}
+          {showReasoningMenu && (
+            <div
+              ref={reasoningMenuRef}
+              className="absolute bottom-12 left-0 bg-white border border-slate-200 shadow-xl rounded-lg p-0.5 flex flex-col w-28 z-50 animate-in fade-in zoom-in-95 duration-200"
+            >
+              {(['off', 'auto', 'light', 'medium', 'heavy'] as const).map(mode => (
+                <button
+                  key={mode}
+                  onClick={() => {
+                    setReasoningMode(mode);
+                    setShowReasoningMenu(false);
+                  }}
+                  className={`flex items-center gap-1 px-1.5 py-1 text-[10px] rounded-md transition-colors text-left capitalize ${reasoningMode === mode
+                    ? 'bg-blue-50 text-blue-600 font-medium'
+                    : 'text-slate-600 hover:bg-slate-50'
+                    }`}
+                >
+                  {mode === 'off' && <span className="w-1.5 h-1.5 rounded-full bg-slate-300" />}
+                  {mode === 'auto' && <Sparkles className="w-3 h-3 text-purple-400" />}
+                  {(mode === 'light' || mode === 'medium' || mode === 'heavy') && <Brain className="w-3 h-3 text-blue-400" />}
+                  {mode.replace('light', 'Light R.').replace('medium', 'Medium R.').replace('heavy', 'Heavy R.')}
+                </button>
+              ))}
+            </div>
+          )}
+
+          <button
+            ref={reasoningToggleRef}
+            onClick={() => setShowReasoningMenu(!showReasoningMenu)}
+            className={`p-2 rounded-lg transition-all duration-200 border nodrag ${reasoningMode !== 'off'
+              ? 'bg-purple-50 text-purple-600 border-purple-200 shadow-sm'
+              : 'bg-slate-50 text-slate-400 border-slate-200 hover:bg-slate-100 hover:text-slate-600'
+              }`}
+            title="Model Reasoning / Thinking"
+          >
+            <Brain className="w-4 h-4" />
+          </button>
+
           <button
             onClick={() => setIsSearchEnabled(!isSearchEnabled)}
             className={`p-2 rounded-lg transition-all duration-200 border nodrag ${isSearchEnabled
@@ -435,16 +542,16 @@ INSTRUCTIONS:
             {isGenerating ? (
               <Sparkles className="w-4 h-4 animate-spin" />
             ) : (
-              <Send className="w-4 h-4" />
+              <Send className="w-4 h-4 text-white/90" />
             )}
-            {isGenerating ? 'Generating...' : 'Generate Answer'}
+            {isGenerating ? 'Thinking...' : 'Generate Answer'}
           </button>
         </div>
       </div>
 
       {/* Footer: Response Section */}
       {(response || isGenerating) && (
-        <div className="border-t border-slate-100 bg-slate-50 p-4 relative">
+        <div className="border-t border-slate-100 bg-slate-50 p-4 relative rounded-b-xl">
           <div
             ref={responseRef}
             onWheel={(e) => e.stopPropagation()}

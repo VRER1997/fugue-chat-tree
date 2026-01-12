@@ -9,6 +9,7 @@ export interface ChatNodeData extends Record<string, unknown> {
   inputText?: string;
   aiResponse?: string;
   highlights?: string[];
+  reasoningMode?: 'off' | 'auto' | 'light' | 'medium' | 'heavy';
 }
 
 export type ChatNodeType = Node<ChatNodeData>;
