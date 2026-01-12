@@ -205,17 +205,26 @@ export const ChatNode = ({ id, data, isConnectable }: NodeProps<ChatNodeData>) =
         completionParams.tools = [{
           type: 'function',
           function: {
-            name: 'bing_search',
+            name: 'web_search',
             description: 'Search the internet using Bing Search',
-            parameters: { type: 'object', properties: {} }
+            parameters: {
+              type: 'object',
+              properties: {
+                query: {
+                  type: 'string',
+                  description: 'The search query to find the latest information'
+                }
+              },
+              required: ['query']
+            }
           }
         }];
-        // Legacy/Fallback
-        completionParams.extra_body = {
-          bing_search: {
-            disable_attribution: false
-          }
-        };
+
+        // Force the model to use the tool
+        // 'required' failed on OpenRouter (No endpoints support it).
+        // specific object failed too.
+        // Fallback to 'auto' and rely on system prompt instructions.
+        completionParams.tool_choice = 'auto';
       }
 
       const stream = await openai.chat.completions.create(completionParams) as AsyncIterable<OpenAI.Chat.Completions.ChatCompletionChunk>;
@@ -315,7 +324,7 @@ INSTRUCTIONS:
                 id: toolCallId || "call_" + Math.random().toString(36).substr(2, 9),
                 type: 'function',
                 function: {
-                  name: toolCallName || "bing_search",
+                  name: toolCallName || "web_search",
                   arguments: toolCallArgs
                 }
               }]
