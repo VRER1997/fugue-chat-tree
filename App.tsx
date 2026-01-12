@@ -317,6 +317,15 @@ const Flow = () => {
             >
               <Settings className="w-5 h-5" />
             </button>
+            <a
+              href="https://github.com/VRER1997/fugue-chat-tree"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="w-9 h-9 bg-white hover:bg-slate-50 text-slate-700 hover:text-black rounded-lg shadow-sm border border-slate-200 flex items-center justify-center transition-colors"
+              title="View on GitHub"
+            >
+              <Github className="w-5 h-5" />
+            </a>
             {/* Hidden File Input */}
             <input
               type="file"
@@ -328,16 +337,6 @@ const Flow = () => {
           </div>
         </div>
 
-        {/* GitHub Link */}
-        <a
-          href="https://github.com/VRER1997/fugue-chat-tree"
-          target="_blank"
-          rel="noopener noreferrer"
-          className="absolute top-4 right-4 bg-white hover:bg-slate-50 text-slate-700 hover:text-black p-2 rounded-full shadow-sm border border-slate-200 transition-colors z-50"
-          title="View on GitHub"
-        >
-          <Github className="w-5 h-5" />
-        </a>
       </ReactFlow>
       <SettingsModal
         isOpen={isSettingsOpen}
