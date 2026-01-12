@@ -10,6 +10,7 @@ export interface ChatNodeData extends Record<string, unknown> {
   aiResponse?: string;
   highlights?: string[];
   reasoningMode?: 'off' | 'auto' | 'light' | 'medium' | 'heavy';
+  isSearchEnabled?: boolean;
 }
 
 export type ChatNodeType = Node<ChatNodeData>;

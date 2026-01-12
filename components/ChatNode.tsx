@@ -19,7 +19,7 @@ export const ChatNode = ({ id, data, isConnectable }: NodeProps<ChatNodeData>) =
 
   const [isGenerating, setIsGenerating] = useState(false);
   const [isResponseCollapsed, setIsResponseCollapsed] = useState(false);
-  const [isSearchEnabled, setIsSearchEnabled] = useState(false);
+  const [isSearchEnabled, setIsSearchEnabled] = useState(data.isSearchEnabled || false);
   const [reasoningMode, setReasoningMode] = useState<NonNullable<ChatNodeData['reasoningMode']>>((data.reasoningMode as any) || 'off');
   const [showReasoningMenu, setShowReasoningMenu] = useState(false);
 
@@ -81,7 +81,11 @@ export const ChatNode = ({ id, data, isConnectable }: NodeProps<ChatNodeData>) =
     setShowQuoteBtn(false);
 
     // Sync input text to node data for future context
-    updateNodeData(id, { inputText: inputText, reasoningMode: reasoningMode });
+    updateNodeData(id, {
+      inputText: inputText,
+      reasoningMode: reasoningMode,
+      isSearchEnabled: isSearchEnabled
+    });
 
     try {
       const storedKey = localStorage.getItem('gemini_api_key');
@@ -531,7 +535,11 @@ INSTRUCTIONS:
           </button>
 
           <button
-            onClick={() => setIsSearchEnabled(!isSearchEnabled)}
+            onClick={() => {
+              const newVal = !isSearchEnabled;
+              setIsSearchEnabled(newVal);
+              updateNodeData(id, { isSearchEnabled: newVal });
+            }}
             className={`p-2 rounded-lg transition-all duration-200 border nodrag ${isSearchEnabled
               ? 'bg-blue-50 text-blue-600 border-blue-200 shadow-sm'
               : 'bg-slate-50 text-slate-400 border-slate-200 hover:bg-slate-100 hover:text-slate-600'

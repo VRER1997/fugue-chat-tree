@@ -89,6 +89,8 @@ const Flow = () => {
           id: newNodeId,
           quote: quoteText,
           onBranch: onBranch, // Recursive callback passing
+          reasoningMode: sourceNode.data.reasoningMode,
+          isSearchEnabled: sourceNode.data.isSearchEnabled,
         },
       };
 
