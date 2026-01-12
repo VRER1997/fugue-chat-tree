@@ -291,31 +291,31 @@ const Flow = () => {
           <div className="flex gap-2">
             <button
               onClick={onClear}
-              className="bg-white hover:bg-red-50 text-slate-700 hover:text-red-600 text-sm font-medium py-2 px-3 rounded-lg shadow-sm border border-slate-200 flex items-center justify-center gap-2 transition-colors"
+              className="w-9 h-9 bg-white hover:bg-red-50 text-slate-700 hover:text-red-600 rounded-lg shadow-sm border border-slate-200 flex items-center justify-center transition-colors"
               title="Clear Canvas"
             >
-              <RotateCcw className="w-4 h-4" />
+              <RotateCcw className="w-5 h-5" />
             </button>
             <button
               onClick={onSave}
-              className="flex-1 bg-white hover:bg-slate-50 text-slate-700 text-sm font-medium py-2 px-3 rounded-lg shadow-sm border border-slate-200 flex items-center justify-center gap-2 transition-colors"
+              className="w-9 h-9 bg-white hover:bg-slate-50 text-slate-700 rounded-lg shadow-sm border border-slate-200 flex items-center justify-center transition-colors"
+              title="Save JSON"
             >
-              <Download className="w-4 h-4" />
-              Save JSON
+              <Download className="w-5 h-5" />
             </button>
             <button
               onClick={triggerFileUpload}
-              className="flex-1 bg-white hover:bg-slate-50 text-slate-700 text-sm font-medium py-2 px-3 rounded-lg shadow-sm border border-slate-200 flex items-center justify-center gap-2 transition-colors"
+              className="w-9 h-9 bg-white hover:bg-slate-50 text-slate-700 rounded-lg shadow-sm border border-slate-200 flex items-center justify-center transition-colors"
+              title="Load JSON"
             >
-              <Upload className="w-4 h-4" />
-              Load
+              <Upload className="w-5 h-5" />
             </button>
             <button
               onClick={() => setIsSettingsOpen(true)}
-              className="flex-1 bg-white hover:bg-slate-50 text-slate-700 text-sm font-medium py-2 px-3 rounded-lg shadow-sm border border-slate-200 flex items-center justify-center gap-2 transition-colors"
+              className="w-9 h-9 bg-white hover:bg-slate-50 text-slate-700 rounded-lg shadow-sm border border-slate-200 flex items-center justify-center transition-colors"
+              title="Settings"
             >
-              <Settings className="w-4 h-4" />
-              Settings
+              <Settings className="w-5 h-5" />
             </button>
             {/* Hidden File Input */}
             <input
