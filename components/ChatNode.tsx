@@ -1,7 +1,7 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react';
 import ReactMarkdown from 'react-markdown';
 import { Handle, Position, NodeProps, useReactFlow } from '@xyflow/react';
-import { MessageSquareQuote, Send, Sparkles, Trash2, ChevronsDown, ChevronsUp, GitFork } from 'lucide-react';
+import { MessageSquareQuote, Send, Sparkles, Trash2, ChevronsDown, ChevronsUp, GitFork, Globe } from 'lucide-react';
 import OpenAI from 'openai';
 import remarkMath from 'remark-math';
 import remarkGfm from 'remark-gfm';
@@ -19,6 +19,7 @@ export const ChatNode = ({ id, data, isConnectable }: NodeProps<ChatNodeData>) =
 
   const [isGenerating, setIsGenerating] = useState(false);
   const [isResponseCollapsed, setIsResponseCollapsed] = useState(false);
+  const [isSearchEnabled, setIsSearchEnabled] = useState(false);
 
   // Selection State
   const [showQuoteBtn, setShowQuoteBtn] = useState(false);
@@ -28,8 +29,6 @@ export const ChatNode = ({ id, data, isConnectable }: NodeProps<ChatNodeData>) =
   const nodeRef = useRef<HTMLDivElement>(null);
 
   // Sync State with Data Props (Crucial for Loading from JSON)
-  // When loading a new JSON, the 'data' prop updates, but the component might not unmount.
-  // We need to sync the props to the local state.
   useEffect(() => {
     if (data.inputText !== undefined) {
       setInputText(prev => prev !== data.inputText ? (data.inputText as string) : prev);
@@ -65,8 +64,6 @@ export const ChatNode = ({ id, data, isConnectable }: NodeProps<ChatNodeData>) =
       const apiUrl = storedUrl || 'https://openrouter.ai/api/v1';
 
       // Initialize OpenAI Client
-      // Note: "dangerouslyAllowBrowser: true" is required because we are calling from frontend.
-      // In production, you should call a backend proxy.
       const openai = new OpenAI({
         apiKey: apiKey,
         baseURL: apiUrl,
@@ -102,7 +99,7 @@ export const ChatNode = ({ id, data, isConnectable }: NodeProps<ChatNodeData>) =
           msgs.push({ role: 'user', content: text });
         }
 
-        // Assistant turn (was 'model' in Gemini)
+        // Assistant turn
         if (node.aiResponse) {
           msgs.push({ role: 'assistant', content: node.aiResponse as string });
         }
@@ -114,24 +111,169 @@ export const ChatNode = ({ id, data, isConnectable }: NodeProps<ChatNodeData>) =
         ? `Regarding the text "${data.quote}":\n${inputText}`
         : inputText;
 
+      let systemPrompt = "You are an expert researcher. Guidelines:\nBe Direct: Start the answer immediately. No filler phrases like 'Here is the answer' or 'That's a great question'.\nHigh Density: Use bullet points and bold text for key concepts.\nNo Repetition: Do not repeat the user's question or the quoted context.\nConcise: Keep the response under 200 words unless explicitly asked for a long explanation.\nContext Aware: Since the user quoted specific text, focus ONLY on that specific part, do not explain the whole concept again.\nLanguage: Respond in the same language as the user's question.";
+
+      if (isSearchEnabled) {
+        systemPrompt += "\n\nCRITICAL: You MUST perform an online internet search to answer this request with the latest, real-time information. Do not rely solely on your internal training data.";
+      }
+
       const messages = [
-        { role: 'system', content: "You are an expert researcher. Guidelines:\nBe Direct: Start the answer immediately. No filler phrases like 'Here is the answer' or 'That's a great question'.\nHigh Density: Use bullet points and bold text for key concepts.\nNo Repetition: Do not repeat the user's question or the quoted context.\nConcise: Keep the response under 200 words unless explicitly asked for a long explanation.\nContext Aware: Since the user quoted specific text, focus ONLY on that specific part, do not explain the whole concept again.\nLanguage: Respond in the same language as the user's question." },
+        { role: 'system', content: systemPrompt },
         ...historyMessages,
         { role: 'user', content: currentPromptText }
       ];
 
-      const stream = await openai.chat.completions.create({
+      // Prepare completion params
+      const completionParams: any = {
         model: modelName,
         messages: messages,
         stream: true,
-      });
+      };
+
+      // Add Gemini-specific search tool if search is enabled
+      // This is a best-effort attempt to enable search on compatible models (like Gemini)
+      // Add search tool if enabled
+      if (isSearchEnabled) {
+        completionParams.tools = [{
+          type: 'function',
+          function: {
+            name: 'bing_search',
+            description: 'Search the internet using Bing Search',
+            parameters: { type: 'object', properties: {} }
+          }
+        }];
+        // Legacy/Fallback
+        completionParams.extra_body = {
+          bing_search: {
+            disable_attribution: false
+          }
+        };
+      }
+
+      const stream = await openai.chat.completions.create(completionParams) as AsyncIterable<OpenAI.Chat.Completions.ChatCompletionChunk>;
 
       let fullText = "";
+      let toolCallArgs = "";
+      let toolCallName = "";
+      let toolCallId = "";
+      let isToolCall = false;
+
       for await (const chunk of stream) {
+        // Handle Content
         const content = chunk.choices[0]?.delta?.content || "";
         if (content) {
           fullText += content;
           setResponse(fullText);
+        }
+
+        // Handle Tool Calls (Accumulate args)
+        const toolCalls = chunk.choices[0]?.delta?.tool_calls;
+        if (toolCalls && toolCalls.length > 0) {
+          isToolCall = true;
+          const toolCall = toolCalls[0];
+          if (toolCall.id) toolCallId = toolCall.id;
+          if (toolCall.function?.name) toolCallName = toolCall.function.name;
+          if (toolCall.function?.arguments) toolCallArgs += toolCall.function.arguments;
+        }
+
+        // Handle Finish (Execute Tool if needed)
+        if (chunk.choices[0]?.finish_reason === 'tool_calls' || (isToolCall && chunk.choices[0]?.finish_reason === 'stop')) {
+          setResponse(fullText + "\n\n*Searching online...*");
+
+          // Execute Client-Side Search
+          // We support Serper.dev (Google) or Bing Search simulation
+          console.log(`Executing Tool: ${toolCallName} with args: ${toolCallArgs}`);
+
+          let searchResult = "Unconfigured Search Provider.";
+          try {
+            const args = JSON.parse(toolCallArgs);
+            const query = args.query || args.q || "latest info";
+            const serperKey = localStorage.getItem('serper_api_key');
+
+            if (serperKey) {
+              setResponse(fullText + `\n\n*Searching Google for "${query}"...*`);
+              // Call Serper.dev API
+              const myHeaders = new Headers();
+              myHeaders.append("X-API-KEY", serperKey);
+              myHeaders.append("Content-Type", "application/json");
+
+              const raw = JSON.stringify({
+                "q": query
+              });
+
+              const requestOptions: any = {
+                method: 'POST',
+                headers: myHeaders,
+                body: raw,
+                redirect: 'follow'
+              };
+
+              const response = await fetch("https://google.serper.dev/search", requestOptions);
+              const result = await response.json();
+
+              // Format results for AI
+              if (result.organic) {
+                searchResult = `Search Results for "${query}":\n` +
+                  result.organic.slice(0, 5).map((item: any, index: number) =>
+                    `${index + 1}. [${item.title}](${item.link}): ${item.snippet}`
+                  ).join('\n');
+              } else {
+                searchResult = `No results found for "${query}".`;
+              }
+
+            } else {
+              // Fallback to Mock if no key
+              searchResult = `[SYSTEM MESSAGE]: This is a simulated search result. Real search is disabled because no 'Serper API Key' was found in settings.
+Current System Time: ${new Date().toLocaleString()}
+User Query: "${query}"
+
+INSTRUCTIONS:
+1. Inform the user that they need to add a "Serper API Key" in Settings to enable real internet search.
+2. Answering based on your internal knowledge only.`;
+            }
+
+          } catch (e) {
+            console.error("Tool Execution Error", e);
+            searchResult = `Error executing search: ${e}`;
+          }
+
+          // Append Tool Result to History
+          const newMessages = [
+            ...messages,
+            {
+              role: 'assistant',
+              content: null,
+              tool_calls: [{
+                id: toolCallId || "call_" + Math.random().toString(36).substr(2, 9),
+                type: 'function',
+                function: {
+                  name: toolCallName || "bing_search",
+                  arguments: toolCallArgs
+                }
+              }]
+            },
+            {
+              role: 'tool',
+              tool_call_id: toolCallId || "call_" + Math.random().toString(36).substr(2, 9),
+              name: toolCallName || "bing_search",
+              content: searchResult
+            }
+          ];
+
+          // Second Call: Get Final Answer
+          const secondStream = await openai.chat.completions.create({
+            model: modelName,
+            messages: newMessages,
+            stream: true
+          }) as AsyncIterable<OpenAI.Chat.Completions.ChatCompletionChunk>;
+
+          for await (const chunk2 of secondStream) {
+            const content2 = chunk2.choices[0]?.delta?.content || "";
+            if (content2) {
+              fullText += content2;
+              setResponse(fullText);
+            }
+          }
         }
       }
 
@@ -168,15 +310,10 @@ export const ChatNode = ({ id, data, isConnectable }: NodeProps<ChatNodeData>) =
     }
 
     const text = selection.toString().trim();
-    if (text.length < 5) { // Minimum length constraint
-      setShowQuoteBtn(false);
-      return;
-    }
+    if (text.length < 5) return;
 
     setSelectedText(text);
-    // Button is now in the header, so we just set state to show it
     setShowQuoteBtn(true);
-
   }, []);
 
   // Listen for selection changes inside the document
@@ -188,12 +325,10 @@ export const ChatNode = ({ id, data, isConnectable }: NodeProps<ChatNodeData>) =
   }, [handleSelection]);
 
   const handleQuoteClick = (e: React.MouseEvent) => {
-    e.stopPropagation(); // Prevent drag start on node
+    e.stopPropagation();
     e.preventDefault();
     if (selectedText && data.onBranch) {
       data.onBranch(selectedText, data.id);
-
-      // Clear selection
       window.getSelection()?.removeAllRanges();
       setShowQuoteBtn(false);
     }
@@ -220,11 +355,9 @@ export const ChatNode = ({ id, data, isConnectable }: NodeProps<ChatNodeData>) =
 
       {/* Top Right Controls */}
       <div className="absolute top-2 right-2 flex gap-1 z-20 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
-
-        {/* Branch Button (Only when text selected in this node) */}
         {showQuoteBtn && (
           <button
-            onMouseDown={(e) => e.preventDefault()} // Prevent losing selection
+            onMouseDown={(e) => e.preventDefault()}
             onClick={handleQuoteClick}
             className="p-1.5 text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-md transition-colors nodrag flex items-center gap-1 font-medium text-xs animate-in fade-in slide-in-from-top-1"
             title="Branch from selected text"
@@ -234,7 +367,6 @@ export const ChatNode = ({ id, data, isConnectable }: NodeProps<ChatNodeData>) =
           </button>
         )}
 
-        {/* Collapse/Expand Button (Only when response exists) */}
         {(response || isGenerating) && (
           <button
             onClick={() => setIsResponseCollapsed(!isResponseCollapsed)}
@@ -245,7 +377,6 @@ export const ChatNode = ({ id, data, isConnectable }: NodeProps<ChatNodeData>) =
           </button>
         )}
 
-        {/* Delete Button (Not for root) */}
         {!data.isRoot && (
           <button
             onClick={handleDelete}
@@ -282,21 +413,33 @@ export const ChatNode = ({ id, data, isConnectable }: NodeProps<ChatNodeData>) =
             }
           }}
         />
-        <button
-          onClick={handleGenerate}
-          disabled={!inputText.trim() || isGenerating}
-          className={`flex items-center justify-center gap-2 py-2 rounded-lg text-sm font-medium transition-all ${inputText.trim() && !isGenerating
-            ? 'bg-blue-600 text-white hover:bg-blue-700 shadow-md'
-            : 'bg-slate-100 text-slate-400 cursor-not-allowed'
-            } nodrag`}
-        >
-          {isGenerating ? (
-            <Sparkles className="w-4 h-4 animate-spin" />
-          ) : (
-            <Send className="w-4 h-4" />
-          )}
-          {isGenerating ? 'Generating...' : 'Generate Answer'}
-        </button>
+        <div className="flex gap-2 items-center">
+          <button
+            onClick={() => setIsSearchEnabled(!isSearchEnabled)}
+            className={`p-2 rounded-lg transition-all duration-200 border nodrag ${isSearchEnabled
+              ? 'bg-blue-50 text-blue-600 border-blue-200 shadow-sm'
+              : 'bg-slate-50 text-slate-400 border-slate-200 hover:bg-slate-100 hover:text-slate-600'
+              }`}
+            title={isSearchEnabled ? "Online Search Enabled" : "Enable Online Search"}
+          >
+            <Globe className={`w-4 h-4 ${isSearchEnabled ? 'animate-pulse' : ''}`} />
+          </button>
+          <button
+            onClick={handleGenerate}
+            disabled={!inputText.trim() || isGenerating}
+            className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-lg text-sm font-medium transition-all ${inputText.trim() && !isGenerating
+              ? 'bg-blue-600 text-white hover:bg-blue-700 shadow-md'
+              : 'bg-slate-100 text-slate-400 cursor-not-allowed'
+              } nodrag`}
+          >
+            {isGenerating ? (
+              <Sparkles className="w-4 h-4 animate-spin" />
+            ) : (
+              <Send className="w-4 h-4" />
+            )}
+            {isGenerating ? 'Generating...' : 'Generate Answer'}
+          </button>
+        </div>
       </div>
 
       {/* Footer: Response Section */}
@@ -317,34 +460,10 @@ export const ChatNode = ({ id, data, isConnectable }: NodeProps<ChatNodeData>) =
                 rehypeKatex,
                 () => (tree) => {
                   if (!data.highlights || data.highlights.length === 0) return;
-                  // console.log("Rendering ChatNode with highlights:", data.highlights);
                   visit(tree, 'text', (node, index, parent) => {
                     if (!parent || !node.value) return;
                     let text = node.value;
-                    // console.log("Visiting text node:", text);
-                    let hasHighlight = false;
-                    const ranges: { start: number, end: number }[] = [];
-
-                    // Simple check for highlighting
-                    // This is a naive implementation; for production robust substring matching is needed.
-                    // Here we handle exact string matches in text nodes.
-                    data.highlights?.forEach(h => {
-                      if (text.includes(h)) {
-                        hasHighlight = true;
-                        // We are not strictly splitting nodes here for simplicity in this edit, 
-                        // just wrapping the *whole* text node if it exactly matches or we rely on 'rehype-react' style replacements which is harder.
-                        // Better approach for simple substring highlight in rehype:
-                        // We will replace the text node with a span if it contains highlight? No, that breaks partials.
-                      }
-                    });
-
-                    // Actually, a safer way for ReactMarkdown without writing complex AST transformations manually 
-                    // is to use a library or just rely on the fact that these are specific quotes.
-                    // Let's implement a simpler AST transform:
-                    if (!data.highlights) return;
-
-                    // We will look for ONE match to keep it simple and avoid infinite loops or complex overlaps
-                    for (const highlight of data.highlights) {
+                    for (const highlight of data.highlights || []) { // Added defensive check
                       const idx = text.indexOf(highlight);
                       if (idx !== -1) {
                         const before = text.slice(0, idx);
@@ -361,8 +480,8 @@ export const ChatNode = ({ id, data, isConnectable }: NodeProps<ChatNodeData>) =
                         });
                         if (after) newNodes.push({ type: 'text', value: after });
 
-                        parent.children.splice(index, 1, ...newNodes);
-                        return; // Stop after first match to be safe
+                        parent.children.splice(index!, 1, ...newNodes);
+                        return;
                       }
                     }
                   });

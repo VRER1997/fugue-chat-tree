@@ -1,17 +1,23 @@
 
 import React, { useState, useEffect } from 'react';
-import { X, Save, Bot } from 'lucide-react';
+import { X, Save, Bot, Globe } from 'lucide-react';
 
 interface SettingsModalProps {
     isOpen: boolean;
     onClose: () => void;
 }
 
+
+
+// ... Wait, I can't just replace the end. I need to inject the tab and the content.
+// I will rewrite the component state/logic first effectively.
+
 export const SettingsModal = ({ isOpen, onClose }: SettingsModalProps) => {
     const [activeTab, setActiveTab] = useState('model');
     const [apiKey, setApiKey] = useState('');
     const [modelName, setModelName] = useState('gemini-1.5-flash');
     const [apiUrl, setApiUrl] = useState('');
+    const [searchApiKey, setSearchApiKey] = useState('');
 
     // Load from localStorage on open
     useEffect(() => {
@@ -19,9 +25,12 @@ export const SettingsModal = ({ isOpen, onClose }: SettingsModalProps) => {
             const storedKey = localStorage.getItem('gemini_api_key') || '';
             const storedModel = localStorage.getItem('gemini_model_name') || 'gemini-1.5-flash';
             const storedUrl = localStorage.getItem('gemini_api_url') || '';
+            const storedSearchKey = localStorage.getItem('serper_api_key') || '';
+
             setApiKey(storedKey);
             setModelName(storedModel);
             setApiUrl(storedUrl);
+            setSearchApiKey(storedSearchKey);
         }
     }, [isOpen]);
 
@@ -29,6 +38,7 @@ export const SettingsModal = ({ isOpen, onClose }: SettingsModalProps) => {
         localStorage.setItem('gemini_api_key', apiKey.trim());
         localStorage.setItem('gemini_model_name', modelName.trim());
         localStorage.setItem('gemini_api_url', apiUrl.trim());
+        localStorage.setItem('serper_api_key', searchApiKey.trim());
         onClose();
     };
 
@@ -51,6 +61,16 @@ export const SettingsModal = ({ isOpen, onClose }: SettingsModalProps) => {
                         <Bot className="w-4 h-4" />
                         Model Configuration
                     </button>
+                    <button
+                        onClick={() => setActiveTab('search')}
+                        className={`flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors text-left ${activeTab === 'search'
+                            ? 'bg-white text-blue-600 shadow-sm border border-slate-200'
+                            : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
+                            }`}
+                    >
+                        <Globe className="w-4 h-4" />
+                        Search Configuration
+                    </button>
                 </div>
 
                 {/* Content Area */}
@@ -59,6 +79,7 @@ export const SettingsModal = ({ isOpen, onClose }: SettingsModalProps) => {
                     <div className="p-4 border-b border-slate-100 flex items-center justify-between">
                         <h2 className="text-lg font-semibold text-slate-800">
                             {activeTab === 'model' && 'Model Configuration'}
+                            {activeTab === 'search' && 'Search Configuration'}
                         </h2>
                         <button
                             onClick={onClose}
@@ -125,6 +146,27 @@ export const SettingsModal = ({ isOpen, onClose }: SettingsModalProps) => {
                                 </div>
                             </div>
                         )}
+
+                        {activeTab === 'search' && (
+                            <div className="space-y-6">
+                                <div>
+                                    <label className="block text-sm font-medium text-slate-700 mb-1">
+                                        Serper API Key
+                                    </label>
+                                    <div className="text-xs text-slate-500 mb-2 leading-relaxed">
+                                        Get a free API key from <a href="https://serper.dev" target="_blank" rel="noreferrer" className="text-blue-600 hover:underline">serper.dev</a> to enable real-time Google Search.
+                                        This simulates an "internet connection" for the AI.
+                                    </div>
+                                    <input
+                                        type="password"
+                                        value={searchApiKey}
+                                        onChange={(e) => setSearchApiKey(e.target.value)}
+                                        placeholder="Enter Serper API Key (e.g., a1b2c3...)"
+                                        className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all text-slate-800"
+                                    />
+                                </div>
+                            </div>
+                        )}
                     </div>
 
                     {/* Footer */}
@@ -145,6 +187,6 @@ export const SettingsModal = ({ isOpen, onClose }: SettingsModalProps) => {
                     </div>
                 </div>
             </div>
-        </div>
+        </div >
     );
 };
