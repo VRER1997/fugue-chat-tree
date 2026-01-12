@@ -15,7 +15,7 @@ import {
   ReactFlowProvider,
   ReactFlowJsonObject,
 } from '@xyflow/react';
-import { LucideQuote, Download, Upload, FileJson, Settings, RotateCcw } from 'lucide-react';
+import { LucideQuote, Download, Upload, FileJson, Settings, RotateCcw, Github } from 'lucide-react';
 import { ChatNode } from './components/ChatNode';
 import { ChatNodeData } from './types';
 import { SettingsModal } from './components/SettingsModal';
@@ -327,6 +327,17 @@ const Flow = () => {
             />
           </div>
         </div>
+
+        {/* GitHub Link */}
+        <a
+          href="https://github.com/VRER1997/fugue-chat-tree"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="absolute top-4 right-4 bg-white hover:bg-slate-50 text-slate-700 hover:text-black p-2 rounded-full shadow-sm border border-slate-200 transition-colors z-50"
+          title="View on GitHub"
+        >
+          <Github className="w-5 h-5" />
+        </a>
       </ReactFlow>
       <SettingsModal
         isOpen={isSettingsOpen}
