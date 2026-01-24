@@ -618,7 +618,25 @@ INSTRUCTIONS:
         <div className="border-t border-slate-100 bg-slate-50 p-4 relative rounded-b-xl">
           <div
             ref={responseRef}
-            onWheel={(e) => e.stopPropagation()}
+            onWheel={(e) => {
+              const element = e.currentTarget;
+              const hasScrollbar = element.scrollHeight > element.clientHeight;
+
+              if (!hasScrollbar) {
+                // No scrollbar, allow canvas panning
+                return;
+              }
+
+              // Check if at scroll boundary
+              const isScrollingDown = e.deltaY > 0;
+              const isAtTop = element.scrollTop === 0;
+              const isAtBottom = element.scrollTop + element.clientHeight >= element.scrollHeight - 1;
+
+              // Only stop propagation if we're scrolling within bounds
+              if ((isScrollingDown && !isAtBottom) || (!isScrollingDown && !isAtTop)) {
+                e.stopPropagation();
+              }
+            }}
             className={`text-xs leading-normal text-slate-700 select-text cursor-text nodrag transition-all duration-300 ${isResponseCollapsed
               ? 'max-h-72 overflow-y-auto custom-scrollbar'
               : 'max-h-[700px] overflow-y-auto custom-scrollbar'

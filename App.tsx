@@ -15,15 +15,17 @@ import {
   ReactFlowProvider,
   ReactFlowJsonObject,
 } from '@xyflow/react';
-import { LucideQuote, Download, Upload, FileJson, Settings, RotateCcw, Github, BookOpen as BookOpenIcon, MessageSquare } from 'lucide-react';
+import { LucideQuote, Download, Upload, FileJson, Settings, RotateCcw, Github, BookOpen as BookOpenIcon, MessageSquare, FileText } from 'lucide-react';
 import { ChatNode } from './components/ChatNode';
 import { ResearchNode } from './components/ResearchNode';
-import { ChatNodeData, ResearchNodeData, AppNode, ChatNodeType, ResearchNodeType } from './types';
+import { NoteNode } from './components/NoteNode';
+import { ChatNodeData, ResearchNodeData, NoteNodeData, AppNode, ChatNodeType, ResearchNodeType, NoteNodeType } from './types';
 import { SettingsModal } from './components/SettingsModal';
 
 const nodeTypes = {
   chatNode: ChatNode,
   researchNode: ResearchNode,
+  noteNode: NoteNode,
 } as any;
 
 const STORAGE_KEY = 'chat-tree-state';
@@ -52,7 +54,8 @@ const Flow = () => {
   // Node dimensions for collision detection
   const NODE_SIZES = {
     chatNode: { width: 412, height: 400 },      // Approximate ChatNode size
-    researchNode: { width: 600, height: 500 }   // Approximate ResearchNode size
+    researchNode: { width: 600, height: 500 },   // Approximate ResearchNode size
+    noteNode: { width: 500, height: 400 }       // Approximate NoteNode size
   };
 
   // Helper to check if two rectangles overlap (with padding)
@@ -72,7 +75,7 @@ const Flow = () => {
   };
 
   // Helper to get a good position for a new node
-  const getNewNodePosition = (nodeType: 'chatNode' | 'researchNode' = 'chatNode') => {
+  const getNewNodePosition = (nodeType: 'chatNode' | 'researchNode' | 'noteNode' = 'chatNode') => {
     const newNodeSize = NODE_SIZES[nodeType];
 
     // If no nodes, center it roughly
@@ -170,6 +173,22 @@ const Flow = () => {
     };
     setNodes((nds) => nds.concat(newNode));
   };
+
+  const handleAddNoteNode = () => {
+    const id = `note-${Date.now()}`;
+    const newNode: NoteNodeType = {
+      id,
+      type: 'noteNode',
+      position: getNewNodePosition('noteNode'),
+      data: {
+        id,
+        content: '',
+        onBranch: onBranch
+      }
+    };
+    setNodes((nds) => nds.concat(newNode));
+  };
+
 
 
 
@@ -558,7 +577,17 @@ const Flow = () => {
               </div>
               <span>New Research</span>
             </button>
+            <button
+              onClick={handleAddNoteNode}
+              className="flex items-center gap-2 bg-amber-600 hover:bg-amber-700 text-white px-3 py-2 rounded-lg font-medium shadow-sm transition-all"
+            >
+              <div className="flex items-center justify-center bg-white/20 p-1 rounded">
+                <FileText className="w-4 h-4" />
+              </div>
+              <span>New Note</span>
+            </button>
           </div>
+
 
           {/* Action Buttons */}
           <div className="flex gap-2">

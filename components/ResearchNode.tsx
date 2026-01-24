@@ -349,7 +349,25 @@ export const ResearchNode = ({ id, data, isConnectable, selected }: NodeProps<Re
 
                                 <div
                                     ref={answerRef}
-                                    onWheel={(e) => e.stopPropagation()}
+                                    onWheel={(e) => {
+                                        const element = e.currentTarget;
+                                        const hasScrollbar = element.scrollHeight > element.clientHeight;
+
+                                        if (!hasScrollbar) {
+                                            // No scrollbar, allow canvas panning
+                                            return;
+                                        }
+
+                                        // Check if at scroll boundary
+                                        const isScrollingDown = e.deltaY > 0;
+                                        const isAtTop = element.scrollTop === 0;
+                                        const isAtBottom = element.scrollTop + element.clientHeight >= element.scrollHeight - 1;
+
+                                        // Only stop propagation if we're scrolling within bounds
+                                        if ((isScrollingDown && !isAtBottom) || (!isScrollingDown && !isAtTop)) {
+                                            e.stopPropagation();
+                                        }
+                                    }}
                                     className={`
                                         p-6 text-xs leading-normal text-slate-700 select-text cursor-text nodrag prose prose-slate max-w-none 
                                         prose-headings:font-semibold prose-headings:tracking-tight prose-headings:text-slate-800

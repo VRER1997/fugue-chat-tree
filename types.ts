@@ -50,7 +50,19 @@ export interface ResearchNodeData extends Record<string, unknown> {
   height?: number;
 }
 
+export interface NoteNodeData extends Record<string, unknown> {
+  id: string;
+  content?: string;
+  onBranch?: (text: string, sourceId: string) => void;
+  collapsed?: boolean;
+  collapsedCount?: number;
+  onCollapse?: (id: string, shouldCollapse: boolean) => void;
+  width?: number;
+  height?: number;
+}
+
 export type ChatNodeType = Node<ChatNodeData, 'chatNode'>;
 export type ResearchNodeType = Node<ResearchNodeData, 'researchNode'>;
+export type NoteNodeType = Node<NoteNodeData, 'noteNode'>;
 
-export type AppNode = ChatNodeType | ResearchNodeType;
+export type AppNode = ChatNodeType | ResearchNodeType | NoteNodeType;
