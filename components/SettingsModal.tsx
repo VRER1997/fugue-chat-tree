@@ -15,22 +15,25 @@ interface SettingsModalProps {
 export const SettingsModal = ({ isOpen, onClose }: SettingsModalProps) => {
     const [activeTab, setActiveTab] = useState('model');
     const [apiKey, setApiKey] = useState('');
-    const [modelName, setModelName] = useState('gemini-1.5-flash');
+    const [modelName, setModelName] = useState('');
     const [apiUrl, setApiUrl] = useState('');
     const [searchApiKey, setSearchApiKey] = useState('');
+    const [tavilyApiKey, setTavilyApiKey] = useState('');
 
     // Load from localStorage on open
     useEffect(() => {
         if (isOpen) {
             const storedKey = localStorage.getItem('gemini_api_key') || '';
-            const storedModel = localStorage.getItem('gemini_model_name') || 'gemini-1.5-flash';
+            const storedModel = localStorage.getItem('gemini_model_name') || '';
             const storedUrl = localStorage.getItem('gemini_api_url') || '';
             const storedSearchKey = localStorage.getItem('serper_api_key') || '';
+            const storedTavilyKey = localStorage.getItem('tavily_api_key') || '';
 
             setApiKey(storedKey);
             setModelName(storedModel);
             setApiUrl(storedUrl);
             setSearchApiKey(storedSearchKey);
+            setTavilyApiKey(storedTavilyKey);
         }
     }, [isOpen]);
 
@@ -39,6 +42,7 @@ export const SettingsModal = ({ isOpen, onClose }: SettingsModalProps) => {
         localStorage.setItem('gemini_model_name', modelName.trim());
         localStorage.setItem('gemini_api_url', apiUrl.trim());
         localStorage.setItem('serper_api_key', searchApiKey.trim());
+        localStorage.setItem('tavily_api_key', tavilyApiKey.trim());
         onClose();
     };
 
@@ -105,7 +109,7 @@ export const SettingsModal = ({ isOpen, onClose }: SettingsModalProps) => {
                                         type="password"
                                         value={apiKey}
                                         onChange={(e) => setApiKey(e.target.value)}
-                                        placeholder="Enter your API Key"
+                                        placeholder={import.meta.env.VITE_GEMINI_API_KEY ? `Using .env: ${import.meta.env.VITE_GEMINI_API_KEY.slice(0, 8)}...` : "Enter your API Key"}
                                         className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all text-slate-800"
                                     />
                                 </div>
@@ -123,7 +127,7 @@ export const SettingsModal = ({ isOpen, onClose }: SettingsModalProps) => {
                                         type="text"
                                         value={apiUrl}
                                         onChange={(e) => setApiUrl(e.target.value)}
-                                        placeholder="https://generativelanguage.googleapis.com"
+                                        placeholder={import.meta.env.VITE_GEMINI_API_URL || "https://generativelanguage.googleapis.com"}
                                         className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all text-slate-800"
                                     />
                                 </div>
@@ -140,7 +144,7 @@ export const SettingsModal = ({ isOpen, onClose }: SettingsModalProps) => {
                                         type="text"
                                         value={modelName}
                                         onChange={(e) => setModelName(e.target.value)}
-                                        placeholder="gemini-1.5-flash"
+                                        placeholder={import.meta.env.VITE_GEMINI_MODEL_NAME || "gemini-1.5-flash"}
                                         className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all text-slate-800"
                                     />
                                 </div>
@@ -161,7 +165,23 @@ export const SettingsModal = ({ isOpen, onClose }: SettingsModalProps) => {
                                         type="password"
                                         value={searchApiKey}
                                         onChange={(e) => setSearchApiKey(e.target.value)}
-                                        placeholder="Enter Serper API Key (e.g., a1b2c3...)"
+                                        placeholder={import.meta.env.VITE_SERPER_API_KEY ? `Using .env: ${import.meta.env.VITE_SERPER_API_KEY.slice(0, 8)}...` : "Enter Serper API Key (e.g., a1b2c3...)"}
+                                        className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all text-slate-800"
+                                    />
+                                </div>
+
+                                <div>
+                                    <label className="block text-sm font-medium text-slate-700 mb-1">
+                                        Tavily API Key
+                                    </label>
+                                    <div className="text-xs text-slate-500 mb-2 leading-relaxed">
+                                        Required for Deep Research. Get a free key from <a href="https://tavily.com" target="_blank" rel="noreferrer" className="text-blue-600 hover:underline">tavily.com</a>.
+                                    </div>
+                                    <input
+                                        type="password"
+                                        value={tavilyApiKey}
+                                        onChange={(e) => setTavilyApiKey(e.target.value)}
+                                        placeholder={import.meta.env.VITE_TAVILY_API_KEY ? `Using .env: ${import.meta.env.VITE_TAVILY_API_KEY.slice(0, 8)}...` : "Enter Tavily API Key"}
                                         className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all text-slate-800"
                                     />
                                 </div>

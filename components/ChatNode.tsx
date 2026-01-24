@@ -8,9 +8,9 @@ import remarkGfm from 'remark-gfm';
 import rehypeKatex from 'rehype-katex';
 import { visit } from 'unist-util-visit';
 import 'katex/dist/katex.min.css';
-import { ChatNodeData } from '../types';
+import { ChatNodeData, ResearchNodeData } from '../types';
 
-export const ChatNode = ({ id, data, isConnectable }: NodeProps<ChatNodeData>) => {
+export const ChatNode = ({ id, data, isConnectable, selected }: NodeProps<ChatNodeData>) => {
   const { deleteElements, updateNodeData, getNodes, getEdges } = useReactFlow();
 
   // Initialize state from data if available, to persist across re-renders/mounts
@@ -31,6 +31,42 @@ export const ChatNode = ({ id, data, isConnectable }: NodeProps<ChatNodeData>) =
   const nodeRef = useRef<HTMLDivElement>(null);
   const reasoningMenuRef = useRef<HTMLDivElement>(null);
   const reasoningToggleRef = useRef<HTMLButtonElement>(null);
+
+  // Resizable functionality
+  const [nodeSize, setNodeSize] = useState({
+    width: data.width || 412,
+    height: data.height || undefined // undefined = auto height
+  });
+  const [isResizing, setIsResizing] = useState(false);
+
+  const handleResizeStart = useCallback((e: React.MouseEvent) => {
+    e.stopPropagation();
+    e.preventDefault();
+    setIsResizing(true);
+
+    const startX = e.clientX;
+    const startWidth = nodeSize.width;
+
+    const handleMouseMove = (moveEvent: MouseEvent) => {
+      const deltaX = moveEvent.clientX - startX;
+      const newWidth = Math.max(300, startWidth + deltaX); // Min width 300px
+
+      setNodeSize({ width: newWidth, height: nodeSize.height });
+    };
+
+    const handleMouseUp = () => {
+      setIsResizing(false);
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+
+      // Save size to node data
+      updateNodeData(id, { width: nodeSize.width });
+    };
+
+    document.addEventListener('mousemove', handleMouseMove);
+    document.addEventListener('mouseup', handleMouseUp);
+  }, [nodeSize, id, updateNodeData]);
+
 
   // Sync State with Data Props (Crucial for Loading from JSON)
   useEffect(() => {
@@ -89,13 +125,13 @@ export const ChatNode = ({ id, data, isConnectable }: NodeProps<ChatNodeData>) =
 
     try {
       const storedKey = localStorage.getItem('gemini_api_key');
-      const apiKey = storedKey || process.env.API_KEY || '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';
+      const apiKey = storedKey || import.meta.env.VITE_GEMINI_API_KEY;
 
       const storedModel = localStorage.getItem('gemini_model_name');
-      const modelName = storedModel || 'z-ai/glm-4.5-air:free';
+      const modelName = storedModel || import.meta.env.VITE_GEMINI_MODEL_NAME;
 
       const storedUrl = localStorage.getItem('gemini_api_url');
-      const apiUrl = storedUrl || 'https://openrouter.ai/api/v1';
+      const apiUrl = storedUrl || import.meta.env.VITE_GEMINI_API_URL;
 
       // Initialize OpenAI Client
       const openai = new OpenAI({
@@ -105,9 +141,10 @@ export const ChatNode = ({ id, data, isConnectable }: NodeProps<ChatNodeData>) =
       });
 
       // 1. Traverse ancestors to build context history
+      // We need to typecase broadly to support both node types for traversal
       const nodes = getNodes();
       const edges = getEdges();
-      const ancestorChain: ChatNodeData[] = [];
+      const ancestorChain: (ChatNodeData | ResearchNodeData)[] = [];
       let currentId = id;
 
       while (true) {
@@ -116,7 +153,8 @@ export const ChatNode = ({ id, data, isConnectable }: NodeProps<ChatNodeData>) =
         const parentNode = nodes.find(n => n.id === parentEdge.source);
         if (!parentNode) break;
 
-        ancestorChain.unshift(parentNode.data); // Add to beginning
+        // Add to beginning of list to maintain chronological order later via unshift
+        ancestorChain.unshift(parentNode.data as (ChatNodeData | ResearchNodeData));
         currentId = parentNode.id;
       }
 
@@ -124,18 +162,33 @@ export const ChatNode = ({ id, data, isConnectable }: NodeProps<ChatNodeData>) =
       const historyMessages: any[] = ancestorChain.flatMap(node => {
         const msgs = [];
 
-        // User turn
-        if (node.inputText) {
-          let text = node.inputText as string;
-          if (node.quote) {
-            text = `Regarding the text "${node.quote}":\n${text}`;
+        // Check if it's a Research Node (has 'query' and 'answer' instead of 'inputText' and 'aiResponse')
+        if ('query' in node && 'answer' in node) {
+          const researchNode = node as ResearchNodeData;
+          // Research Query -> User
+          if (researchNode.query) {
+            msgs.push({ role: 'user', content: researchNode.query });
           }
-          msgs.push({ role: 'user', content: text });
-        }
+          // Research Answer -> Assistant
+          if (researchNode.answer) {
+            msgs.push({ role: 'assistant', content: researchNode.answer });
+          }
+        } else {
+          // Chat Node
+          const chatNode = node as ChatNodeData;
+          // User turn
+          if (chatNode.inputText) {
+            let text = chatNode.inputText as string;
+            if (chatNode.quote) {
+              text = `Regarding the text "${chatNode.quote}":\n${text}`;
+            }
+            msgs.push({ role: 'user', content: text });
+          }
 
-        // Assistant turn
-        if (node.aiResponse) {
-          msgs.push({ role: 'assistant', content: node.aiResponse as string });
+          // Assistant turn
+          if (chatNode.aiResponse) {
+            msgs.push({ role: 'assistant', content: chatNode.aiResponse as string });
+          }
         }
         return msgs;
       });
@@ -148,7 +201,7 @@ export const ChatNode = ({ id, data, isConnectable }: NodeProps<ChatNodeData>) =
       let systemPrompt = "You are an expert researcher. Guidelines:\nBe Direct: Start the answer immediately. No filler phrases like 'Here is the answer' or 'That's a great question'.\nHigh Density: Use bullet points and bold text for key concepts.\nNo Repetition: Do not repeat the user's question or the quoted context.\nConcise: Keep the response under 200 words unless explicitly asked for a long explanation.\nContext Aware: Since the user quoted specific text, focus ONLY on that specific part, do not explain the whole concept again.\nLanguage: Respond in the same language as the user's question.";
 
       if (isSearchEnabled) {
-        systemPrompt += "\n\nCRITICAL: You MUST perform an online internet search to answer this request with the latest, real-time information. Do not rely solely on your internal training data.";
+        systemPrompt += `\n\nCRITICAL: You MUST perform an online internet search to answer this request with the latest, real-time information. Do not rely solely on your internal training data.\nCurrent Date and Time: ${new Date().toLocaleString()}`;
       }
 
       const messages = [
@@ -166,10 +219,6 @@ export const ChatNode = ({ id, data, isConnectable }: NodeProps<ChatNodeData>) =
 
       // Add Reasoning Parameters (Simulated via extra_body for OpenRouter/DeepSeek/etc)
       if (reasoningMode !== 'off') {
-        // This structure mimics how some providers (like OpenRouter for DeepSeek-R1) accept reasoning params
-        // or generic thinking parameters.
-        // Adjust based on the actual target API. Assuming a generic "thinking" object or similar.
-        // For now, we will add it to extra_body.
         const budgetMap = {
           'light': 1024,
           'medium': 4096,
@@ -182,13 +231,11 @@ export const ChatNode = ({ id, data, isConnectable }: NodeProps<ChatNodeData>) =
         if (!completionParams.extra_body) completionParams.extra_body = {};
 
         if (reasoningMode === 'auto') {
-          // Some providers use specific flags for auto
           completionParams.extra_body = {
             ...completionParams.extra_body,
             include_reasoning: true
           };
         } else {
-          // Example for DeepSeek-R1 on some providers
           completionParams.extra_body = {
             ...completionParams.extra_body,
             top_k: 50, // Example param
@@ -196,15 +243,12 @@ export const ChatNode = ({ id, data, isConnectable }: NodeProps<ChatNodeData>) =
               budget: budget,
               type: "enabled"
             },
-            // Include standard field if supported
             include_reasoning: true
           };
         }
       }
 
       // Add Gemini-specific search tool if search is enabled
-      // This is a best-effort attempt to enable search on compatible models (like Gemini)
-      // Add search tool if enabled
       if (isSearchEnabled) {
         completionParams.tools = [{
           type: 'function',
@@ -223,11 +267,6 @@ export const ChatNode = ({ id, data, isConnectable }: NodeProps<ChatNodeData>) =
             }
           }
         }];
-
-        // Force the model to use the tool
-        // 'required' failed on OpenRouter (No endpoints support it).
-        // specific object failed too.
-        // Fallback to 'auto' and rely on system prompt instructions.
         completionParams.tool_choice = 'auto';
       }
 
@@ -262,14 +301,13 @@ export const ChatNode = ({ id, data, isConnectable }: NodeProps<ChatNodeData>) =
           setResponse(fullText + "\n\n*Searching online...*");
 
           // Execute Client-Side Search
-          // We support Serper.dev (Google) or Bing Search simulation
           console.log(`Executing Tool: ${toolCallName} with args: ${toolCallArgs}`);
 
           let searchResult = "Unconfigured Search Provider.";
           try {
             const args = JSON.parse(toolCallArgs);
             const query = args.query || args.q || "latest info";
-            const serperKey = localStorage.getItem('serper_api_key');
+            const serperKey = localStorage.getItem('serper_api_key') || import.meta.env.VITE_SERPER_API_KEY;
 
             if (serperKey) {
               setResponse(fullText + `\n\n*Searching Google for "${query}"...*`);
@@ -416,23 +454,32 @@ INSTRUCTIONS:
   };
 
   const handleDelete = () => {
-    deleteElements({ nodes: [{ id }] });
+    const edges = getEdges();
+    const connectedEdges = edges.filter(edge => edge.source === id || edge.target === id);
+    deleteElements({
+      nodes: [{ id }],
+      edges: connectedEdges
+    });
   };
 
   return (
     <div
       ref={nodeRef}
-      className="bg-white rounded-xl shadow-lg border border-slate-200 w-[412px] flex flex-col transition-shadow duration-200 hover:shadow-xl relative group"
+      className={`bg-white rounded-xl shadow-lg border flex flex-col transition-all duration-200 hover:shadow-xl relative group ${selected ? 'border-blue-500 ring-2 ring-blue-500/20' : 'border-slate-200'} ${isResizing ? 'select-none' : ''}`}
+      style={{
+        width: `${nodeSize.width}px`,
+        height: nodeSize.height ? `${nodeSize.height}px` : 'auto',
+        minHeight: '200px'
+      }}
     >
       {/* Target Handle (Input) - Not for root */}
-      {!data.isRoot && (
-        <Handle
-          type="target"
-          position={Position.Left}
-          isConnectable={isConnectable}
-          className="w-3 h-3 bg-slate-400"
-        />
-      )}
+      {/* Target Handle (Input) */}
+      <Handle
+        type="target"
+        position={Position.Left}
+        isConnectable={isConnectable}
+        className="w-3 h-3 bg-slate-400"
+      />
 
       {/* Top Right Controls */}
       <div className="absolute top-2 right-2 flex gap-1 z-20 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
@@ -513,7 +560,7 @@ INSTRUCTIONS:
                     : 'text-slate-600 hover:bg-slate-50'
                     }`}
                 >
-                  {mode === 'off' && <span className="w-1.5 h-1.5 rounded-full bg-slate-300" />}
+                  {mode === 'off' && <span className="w-1.5 h-1.5 rounded-full bg-slate-100" />}
                   {mode === 'auto' && <Sparkles className="w-3 h-3 text-purple-400" />}
                   {(mode === 'light' || mode === 'medium' || mode === 'heavy') && <Brain className="w-3 h-3 text-blue-400" />}
                   {mode.replace('light', 'Light R.').replace('medium', 'Medium R.').replace('heavy', 'Heavy R.')}
@@ -623,12 +670,48 @@ INSTRUCTIONS:
         </div>
       )}
 
-      {/* Source Handle (Output) */}
+      {/* Collapse Button - Positioned Above Source Handle */}
+      <div className="absolute right-0 top-[30%] -translate-y-1/2 translate-x-[50%] flex flex-col items-center gap-1 z-50">
+        {data.onCollapse && (
+          <button
+            onClick={() => data.onCollapse?.(data.id, !data.collapsed)}
+            className={`
+              w-6 h-6 rounded-md flex items-center justify-center transition-all shadow-md border-2
+              ${data.collapsed
+                ? 'bg-blue-500 text-white border-blue-600 hover:bg-blue-600 hover:shadow-lg'
+                : 'bg-white text-slate-600 border-slate-300 hover:bg-slate-50 hover:border-blue-400 hover:text-blue-600'}
+            `}
+            title={data.collapsed ? `展开 ${data.collapsedCount} 个节点` : "折叠子节点"}
+          >
+            {data.collapsed ? (
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+              </svg>
+            ) : (
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+              </svg>
+            )}
+          </button>
+        )}
+        {data.collapsed && data.collapsedCount > 0 && (
+          <span className="text-[10px] font-semibold text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded-full">
+            {data.collapsedCount}
+          </span>
+        )}
+      </div>
       <Handle
         type="source"
         position={Position.Right}
         isConnectable={isConnectable}
         className="w-3 h-3 bg-slate-400"
+      />
+
+      {/* Resize Handle */}
+      <div
+        onMouseDown={handleResizeStart}
+        className="absolute right-0 top-1/2 -translate-y-1/2 w-2 h-12 cursor-ew-resize opacity-0 group-hover:opacity-60 hover:opacity-100 transition-opacity nodrag bg-slate-400 rounded-l-sm"
+        title="拖拽调整宽度"
       />
     </div>
   );

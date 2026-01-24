@@ -15,14 +15,16 @@ import {
   ReactFlowProvider,
   ReactFlowJsonObject,
 } from '@xyflow/react';
-import { LucideQuote, Download, Upload, FileJson, Settings, RotateCcw, Github } from 'lucide-react';
+import { LucideQuote, Download, Upload, FileJson, Settings, RotateCcw, Github, BookOpen as BookOpenIcon, MessageSquare } from 'lucide-react';
 import { ChatNode } from './components/ChatNode';
-import { ChatNodeData } from './types';
+import { ResearchNode } from './components/ResearchNode';
+import { ChatNodeData, ResearchNodeData, AppNode, ChatNodeType, ResearchNodeType } from './types';
 import { SettingsModal } from './components/SettingsModal';
 
 const nodeTypes = {
   chatNode: ChatNode,
-};
+  researchNode: ResearchNode,
+} as any;
 
 const STORAGE_KEY = 'chat-tree-state';
 
@@ -41,11 +43,195 @@ const initialNodes: Node<ChatNodeData>[] = [
 ];
 
 const Flow = () => {
-  const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes);
+  const [nodes, setNodes, onNodesChange] = useNodesState<AppNode>([]); // Start empty
   const [edges, setEdges, onEdgesChange] = useEdgesState([]);
-  const { getNode, toObject, setViewport, fitView } = useReactFlow();
+  const { getNode, getNodes, getEdges, toObject, setViewport, fitView } = useReactFlow();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isSettingsOpen, setIsSettingsOpen] = React.useState(false);
+
+  // Node dimensions for collision detection
+  const NODE_SIZES = {
+    chatNode: { width: 412, height: 400 },      // Approximate ChatNode size
+    researchNode: { width: 600, height: 500 }   // Approximate ResearchNode size
+  };
+
+  // Helper to check if two rectangles overlap (with padding)
+  const checkOverlap = (
+    pos1: { x: number; y: number },
+    size1: { width: number; height: number },
+    pos2: { x: number; y: number },
+    size2: { width: number; height: number },
+    padding: number = 50 // Extra space between nodes
+  ): boolean => {
+    return !(
+      pos1.x + size1.width + padding < pos2.x ||
+      pos2.x + size2.width + padding < pos1.x ||
+      pos1.y + size1.height + padding < pos2.y ||
+      pos2.y + size2.height + padding < pos1.y
+    );
+  };
+
+  // Helper to get a good position for a new node
+  const getNewNodePosition = (nodeType: 'chatNode' | 'researchNode' = 'chatNode') => {
+    const newNodeSize = NODE_SIZES[nodeType];
+
+    // If no nodes, center it roughly
+    if (nodes.length === 0) {
+      return {
+        x: window.innerWidth / 2 - newNodeSize.width / 2,
+        y: window.innerHeight / 2 - newNodeSize.height / 2
+      };
+    }
+
+    // Try to find a non-overlapping position
+    // Start from the last node position and search in a spiral pattern
+    const lastNode = nodes[nodes.length - 1];
+    const startX = lastNode.position.x;
+    const startY = lastNode.position.y;
+
+    // Define search offsets - Priority: Down, Up, Right, Left, then diagonals and far positions
+    const searchOffsets = [
+      { x: 0, y: 100 },     // Down (priority 1)
+      { x: 0, y: -100 },    // Up (priority 2)
+      { x: 100, y: 0 },     // Right (priority 3)
+      { x: -100, y: 0 },    // Left (priority 4)
+      { x: 150, y: 150 },   // Diagonal down-right
+      { x: -150, y: 150 },  // Diagonal down-left
+      { x: 150, y: -150 },  // Diagonal up-right
+      { x: -150, y: -150 }, // Diagonal up-left
+      { x: 0, y: 250 },     // Far down
+      { x: 0, y: -250 },    // Far up
+      { x: 250, y: 0 },     // Far right
+      { x: -250, y: 0 },    // Far left
+      { x: 100, y: 500 },   // Very far down-right
+      { x: 500, y: 100 },   // Very far right-down
+    ];
+
+    for (const offset of searchOffsets) {
+      const candidatePos = {
+        x: startX + offset.x,
+        y: startY + offset.y
+      };
+
+      // Check if this position overlaps with any existing node
+      let hasOverlap = false;
+      for (const node of nodes) {
+        const nodeSize = NODE_SIZES[node.type as 'chatNode' | 'researchNode'] || NODE_SIZES.chatNode;
+        if (checkOverlap(candidatePos, newNodeSize, node.position, nodeSize)) {
+          hasOverlap = true;
+          break;
+        }
+      }
+
+      if (!hasOverlap) {
+        return candidatePos;
+      }
+    }
+
+    // If all positions overlap, fall back to a position far to the right
+    return {
+      x: startX + 700,
+      y: startY + Math.random() * 200 - 100 // Add some randomness
+    };
+  };
+
+  const handleAddChatNode = () => {
+    const id = `node-${Date.now()}`;
+    const newNode: ChatNodeType = {
+      id,
+      type: 'chatNode',
+      position: getNewNodePosition('chatNode'),
+      data: {
+        id,
+        inputText: '',
+        isRoot: true, // Independent nodes created manually act as roots? Or just standalone? Let's say true.
+        isSearchEnabled: false,
+        reasoningMode: 'off',
+        onBranch: onBranch
+      }
+    };
+    setNodes((nds) => nds.concat(newNode));
+  };
+
+  const handleAddResearchNode = () => {
+    const id = `research-${Date.now()}`;
+    const newNode: ResearchNodeType = {
+      id,
+      type: 'researchNode',
+      position: getNewNodePosition('researchNode'),
+      data: {
+        id,
+        query: '',
+        status: 'idle',
+        steps: [],
+        answer: '',
+        sources: []
+      }
+    };
+    setNodes((nds) => nds.concat(newNode));
+  };
+
+
+
+  // Implement onCollapse Function
+  const onCollapse = useCallback(
+    (nodeId: string, shouldCollapse: boolean) => {
+      // Get FRESH state directly from ReactFlow instance
+      const currentNodes = getNodes();
+      const currentEdges = getEdges();
+
+      // BFS to find all downstream nodes and edges
+      const queue = [nodeId];
+      const visited = new Set<string>();
+      const descendantNodeIds = new Set<string>();
+      const descendantEdgeIds = new Set<string>();
+
+      while (queue.length > 0) {
+        const curr = queue.shift()!;
+        if (visited.has(curr)) continue;
+        visited.add(curr);
+
+        const outgoingEdges = currentEdges.filter(e => e.source === curr);
+        outgoingEdges.forEach(e => {
+          descendantEdgeIds.add(e.id);
+          // Only add target if we haven't visited it (standard tree/DAG traversal)
+          if (!visited.has(e.target)) {
+            descendantNodeIds.add(e.target);
+            queue.push(e.target);
+          }
+        });
+      }
+
+      // Update Edges
+      setEdges((eds) => eds.map(e => {
+        if (descendantEdgeIds.has(e.id)) {
+          return { ...e, hidden: shouldCollapse };
+        }
+        return e;
+      }));
+
+      // Update Nodes
+      setNodes((nds) => nds.map(n => {
+        if (descendantNodeIds.has(n.id)) {
+          return { ...n, hidden: shouldCollapse };
+        }
+        if (n.id === nodeId) {
+          return {
+            ...n,
+            data: {
+              ...n.data,
+              collapsed: shouldCollapse,
+              collapsedCount: shouldCollapse ? descendantNodeIds.size : 0
+            }
+          };
+        }
+        return n;
+      }));
+
+    },
+    [getNodes, getEdges, setNodes, setEdges] // Stable dependencies
+  );
+
 
   // Function to create a new branch
   const onBranch = useCallback(
@@ -53,33 +239,47 @@ const Flow = () => {
       const sourceNode = getNode(sourceNodeId);
       if (!sourceNode) return;
 
-      // 1. Update source node to save the highlight
-      setNodes((nds) =>
-        nds.map((node) => {
-          if (node.id === sourceNodeId) {
-            const currentHighlights = node.data.highlights || [];
-            if (!currentHighlights.includes(quoteText)) {
-              return {
-                ...node,
-                data: {
-                  ...node.data,
-                  highlights: [...currentHighlights, quoteText]
-                }
-              };
+      // 1. Update source node to save the highlight (Only for ChatNode)
+      if (sourceNode.type === 'chatNode') {
+        setNodes((nds) =>
+          nds.map((node) => {
+            if (node.id === sourceNodeId && node.type === 'chatNode') {
+              const chatNode = node as ChatNodeType;
+              const currentHighlights = chatNode.data.highlights || [];
+              if (!currentHighlights.includes(quoteText)) {
+                return {
+                  ...node,
+                  data: {
+                    ...node.data,
+                    highlights: [...currentHighlights, quoteText]
+                  }
+                };
+              }
             }
-          }
-          return node;
-        })
-      );
+            return node;
+          })
+        );
+      }
 
       const newNodeId = `node-${Date.now()}`;
 
-      // Calculate position for new node (to the right of source)
-      // Increased offset to 600 to accommodate 550px wide nodes
+      // Calculate position for new node
+      // Research nodes are wider (600px) than Chat nodes (412px)
+      // Standard offset for Chat Node: 600px
+      // Offset for Research Node: 800px
+      const xOffset = sourceNode.type === 'researchNode' ? 800 : 600;
+
       const newPosition = {
-        x: sourceNode.position.x + 600,
+        x: sourceNode.position.x + xOffset,
         y: sourceNode.position.y + (Math.random() * 100 - 50),
       };
+
+      // Inherit settings from parent if available, otherwise defaults
+      const parentData = sourceNode.data as (ChatNodeData | ResearchNodeData);
+      // Research nodes don't have reasoningMode/isSearchEnabled properties directly mapping to ChatNode
+      // So usage defaults or 'off'/false for Research parents for now.
+      const inheritedReasoning = 'reasoningMode' in parentData ? parentData.reasoningMode : 'off';
+      const inheritedSearch = 'isSearchEnabled' in parentData ? parentData.isSearchEnabled : false;
 
       const newNode: Node<ChatNodeData> = {
         id: newNodeId,
@@ -89,8 +289,9 @@ const Flow = () => {
           id: newNodeId,
           quote: quoteText,
           onBranch: onBranch, // Recursive callback passing
-          reasoningMode: sourceNode.data.reasoningMode,
-          isSearchEnabled: sourceNode.data.isSearchEnabled,
+          onCollapse: onCollapse,
+          reasoningMode: inheritedReasoning,
+          isSearchEnabled: inheritedSearch,
         },
       };
 
@@ -109,25 +310,72 @@ const Flow = () => {
       setNodes((nds) => nds.concat(newNode));
       setEdges((eds) => addEdge(newEdge, eds));
     },
-    [getNode, setNodes, setEdges]
+    [getNode, setNodes, setEdges, onCollapse]
   );
 
-  // Update initial nodes with the onBranch callback
+  // Update initial nodes with the onBranch and onCollapse callback
+  // This useEffect is now safe because onBranch and onCollapse are stable (impl uses getters)
   React.useEffect(() => {
     setNodes((nds) =>
-      nds.map((node) => ({
-        ...node,
-        data: {
-          ...node.data,
-          onBranch: onBranch
+      nds.map((node) => {
+        // Only update if callbacks are missing or changed (reference check)
+        // Optimization: checking if data.onCollapse is strictly equal avoids separate object creation if same
+        if (node.data.onBranch === onBranch && node.data.onCollapse === onCollapse) {
+          return node;
         }
-      }))
+        return {
+          ...node,
+          data: {
+            ...node.data,
+            onBranch: onBranch,
+            onCollapse: onCollapse
+          }
+        };
+      })
     );
-  }, [onBranch, setNodes]);
+  }, [onBranch, onCollapse, setNodes]);
 
   const onConnect = useCallback(
-    (params: Connection) => setEdges((eds) => addEdge(params, eds)),
-    [setEdges]
+    (params: Connection) => {
+      // Check if this connection would create a cycle
+      const { source, target } = params;
+
+      if (!source || !target) return;
+
+      // A connection from A to B creates a cycle if there's already a path from B to A
+      // We'll use DFS to check if target can reach source through existing edges
+      const currentEdges = getEdges();
+
+      const canReach = (from: string, to: string, visited = new Set<string>()): boolean => {
+        if (from === to) return true;
+        if (visited.has(from)) return false;
+
+        visited.add(from);
+
+        // Find all outgoing edges from current node
+        const outgoingEdges = currentEdges.filter(edge => edge.source === from);
+
+        // Recursively check if any of the target nodes can reach our destination
+        for (const edge of outgoingEdges) {
+          if (canReach(edge.target, to, visited)) {
+            return true;
+          }
+        }
+
+        return false;
+      };
+
+      // Check if target can already reach source (which would create a cycle)
+      if (canReach(target, source)) {
+        // Show alert to user
+        alert('⚠️ 无法创建连接：此操作将导致循环引用。\n\n节点之间的连接必须保持树形或有向无环图(DAG)结构。');
+        return; // Abort the connection
+      }
+
+      // No cycle detected, proceed with the connection
+      setEdges((eds) => addEdge(params, eds));
+    },
+    [setEdges, getEdges]
   );
 
   // --- Load from localStorage on mount ---
@@ -143,7 +391,8 @@ const Flow = () => {
             ...node,
             data: {
               ...node.data,
-              onBranch: onBranch
+              onBranch: onBranch,
+              onCollapse: onCollapse
             }
           }));
           setNodes(restoredNodes);
@@ -156,7 +405,7 @@ const Flow = () => {
       }
     }
     setIsLoaded(true);
-  }, [isLoaded, onBranch, setNodes, setEdges, setViewport]);
+  }, [isLoaded, onBranch, onCollapse, setNodes, setEdges, setViewport]);
 
   // --- Save to localStorage on change ---
   React.useEffect(() => {
@@ -171,27 +420,15 @@ const Flow = () => {
       // Clear localStorage
       localStorage.removeItem(STORAGE_KEY);
 
-      const freshRoot: Node<ChatNodeData> = {
-        id: 'root',
-        type: 'chatNode',
-        position: { x: 0, y: 0 },
-        data: {
-          id: 'root',
-          isRoot: true,
-          onBranch: onBranch,
-          inputText: '',
-          aiResponse: '',
-          highlights: [],
-        },
-      };
-      setNodes([freshRoot]);
+      setNodes([]);
       setEdges([]);
-      // Use fitView with a small delay to center the node after state updates
+
+      // Reset view
       setTimeout(() => {
-        fitView({ padding: 0.5, duration: 200 });
+        setViewport({ x: 0, y: 0, zoom: 1 });
       }, 50);
     }
-  }, [onBranch, setNodes, setEdges, fitView]);
+  }, [setNodes, setEdges, fitView]); // Removed onBranch from dependencies as unused here
 
   // --- Save Functionality ---
   const onSave = useCallback(() => {
@@ -217,20 +454,27 @@ const Flow = () => {
       if (typeof result !== 'string') return;
 
       try {
-        const flow: ReactFlowJsonObject<ChatNodeData> = JSON.parse(result);
+        const flow: ReactFlowJsonObject<AppNode> = JSON.parse(result);
 
         if (flow) {
           const { x = 0, y = 0, zoom = 1 } = flow.viewport || {};
 
-          // We must re-attach the current onBranch callback to loaded nodes
+          // We must re-attach the current onBranch and onCollapse callback to loaded nodes
           // because functions are not serialized in JSON.
-          const restoredNodes = flow.nodes.map((node) => ({
-            ...node,
-            data: {
-              ...node.data,
-              onBranch: onBranch, // Re-bind the active callback
-            },
-          }));
+          const restoredNodes = flow.nodes.map((node) => {
+            // Re-attach callback only for chat/research nodes that need it
+            if (node.type === 'chatNode' || node.type === 'researchNode') {
+              return {
+                ...node,
+                data: {
+                  ...node.data,
+                  onBranch: onBranch,
+                  onCollapse: onCollapse
+                }
+              } as AppNode;
+            }
+            return node as AppNode;
+          });
 
           setNodes(restoredNodes);
           setEdges(flow.edges || []);
@@ -244,14 +488,14 @@ const Flow = () => {
     reader.readAsText(file);
     // Reset input so same file can be selected again
     event.target.value = '';
-  }, [onBranch, setNodes, setEdges, setViewport]);
+  }, [onBranch, onCollapse, setNodes, setEdges, setViewport]);
 
   const triggerFileUpload = () => {
     fileInputRef.current?.click();
   };
 
   return (
-    <div className="w-full h-screen bg-slate-50 relative">
+    <div className="w-full h-screen bg-slate-50 relative font-sans">
       <ReactFlow
         nodes={nodes}
         edges={edges}
@@ -262,10 +506,15 @@ const Flow = () => {
         fitView
         minZoom={0.1}
         maxZoom={1.5}
+        deleteKeyCode={['Backspace', 'Delete']}
         defaultEdgeOptions={{
           type: 'smoothstep',
           animated: true,
-          style: { stroke: '#cbd5e1', strokeWidth: 2 }
+          style: { stroke: '#cbd5e1', strokeWidth: 2 },
+          markerEnd: {
+            type: MarkerType.ArrowClosed,
+            color: '#cbd5e1',
+          },
         }}
       >
         <Background
@@ -285,8 +534,30 @@ const Flow = () => {
               Chat Tree
             </h1>
             <p className="text-sm text-slate-600 mt-1">
-              Generate an AI response, then <span className="font-semibold text-slate-900">highlight any text</span> in the answer to branch out a new conversation node.
+              Add a node to start. <span className="font-semibold text-slate-900">Highlight text</span> in answers to branch out.
             </p>
+          </div>
+
+          {/* Create Node Buttons */}
+          <div className="flex gap-2">
+            <button
+              onClick={handleAddChatNode}
+              className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-3 py-2 rounded-lg font-medium shadow-sm transition-all"
+            >
+              <div className="flex items-center justify-center bg-white/20 p-1 rounded">
+                <MessageSquare className="w-4 h-4" />
+              </div>
+              <span>New Chat</span>
+            </button>
+            <button
+              onClick={handleAddResearchNode}
+              className="flex items-center gap-2 bg-purple-600 hover:bg-purple-700 text-white px-3 py-2 rounded-lg font-medium shadow-sm transition-all"
+            >
+              <div className="flex items-center justify-center bg-white/20 p-1 rounded">
+                <BookOpenIcon className="w-4 h-4" />
+              </div>
+              <span>New Research</span>
+            </button>
           </div>
 
           {/* Action Buttons */}
