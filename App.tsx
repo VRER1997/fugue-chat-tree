@@ -15,12 +15,26 @@ import {
   ReactFlowProvider,
   ReactFlowJsonObject,
 } from '@xyflow/react';
-import { LucideQuote, Download, Upload, FileJson, Settings, RotateCcw, Github, BookOpen as BookOpenIcon, MessageSquare, FileText } from 'lucide-react';
+import {
+  MessageSquare,
+  FileText,
+  BookOpen as BookOpenIcon,
+  Settings,
+  Download,
+  Upload,
+  RotateCcw,
+  Quote as LucideQuote,
+  Plus,
+  Github,
+  GitBranch
+} from 'lucide-react';
 import { ChatNode } from './components/ChatNode';
 import { ResearchNode } from './components/ResearchNode';
 import { NoteNode } from './components/NoteNode';
-import { ChatNodeData, ResearchNodeData, NoteNodeData, AppNode, ChatNodeType, ResearchNodeType, NoteNodeType } from './types';
+import { ChatNodeData, ResearchNodeData, NoteNodeData, AppNode, ChatNodeType, ResearchNodeType, NoteNodeType, Canvas } from './types';
 import { SettingsModal } from './components/SettingsModal';
+import { CanvasList } from './components/CanvasList';
+import { generateCanvasTitle } from './services/titleGenerator';
 
 const nodeTypes = {
   chatNode: ChatNode,
@@ -28,7 +42,8 @@ const nodeTypes = {
   noteNode: NoteNode,
 } as any;
 
-const STORAGE_KEY = 'chat-tree-state';
+const STORAGE_KEY = 'chat-tree-canvases';
+const OLD_STORAGE_KEY = 'chat-tree-state'; // For migration
 
 // Initial Root Node
 const initialNodes: Node<ChatNodeData>[] = [
@@ -47,9 +62,15 @@ const initialNodes: Node<ChatNodeData>[] = [
 const Flow = () => {
   const [nodes, setNodes, onNodesChange] = useNodesState<AppNode>([]); // Start empty
   const [edges, setEdges, onEdgesChange] = useEdgesState([]);
-  const { getNode, getNodes, getEdges, toObject, setViewport, fitView } = useReactFlow();
+  const { getNode, getNodes, getEdges, toObject, setViewport, fitView, getZoom } = useReactFlow();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isSettingsOpen, setIsSettingsOpen] = React.useState(false);
+
+  // Multi-canvas state
+  const [canvases, setCanvases] = React.useState<Canvas[]>([]);
+  const [activeCanvasId, setActiveCanvasId] = React.useState<string>('');
+  const [isCanvasListCollapsed, setIsCanvasListCollapsed] = React.useState(false);
+  const [titleGenerationAttempted, setTitleGenerationAttempted] = React.useState<Set<string>>(new Set());
 
   // Node dimensions for collision detection
   const NODE_SIZES = {
@@ -77,8 +98,9 @@ const Flow = () => {
   // Helper to get a good position for a new node
   const getNewNodePosition = (nodeType: 'chatNode' | 'researchNode' | 'noteNode' = 'chatNode') => {
     const newNodeSize = NODE_SIZES[nodeType];
+    const zoom = getZoom();
 
-    // If no nodes, center it roughly
+    // If no nodes, center it relative to viewport or window center (simplified)
     if (nodes.length === 0) {
       return {
         x: window.innerWidth / 2 - newNodeSize.width / 2,
@@ -86,28 +108,27 @@ const Flow = () => {
       };
     }
 
-    // Try to find a non-overlapping position
-    // Start from the last node position and search in a spiral pattern
-    const lastNode = nodes[nodes.length - 1];
-    const startX = lastNode.position.x;
-    const startY = lastNode.position.y;
+    // Prioritize selected node, otherwise use last node
+    const selectedNode = nodes.find(n => n.selected);
+    const referenceNode = selectedNode || nodes[nodes.length - 1];
 
-    // Define search offsets - Priority: Down, Up, Right, Left, then diagonals and far positions
+    const startX = referenceNode.position.x;
+    const startY = referenceNode.position.y;
+
+    // ScaleFactor: If zoom is 0.5 (zoomed out), we want gap to be larger (e.g. 200px) so on screen it looks like 100px.
+    const scaleFactor = 1 / Math.max(zoom, 0.1);
+    const spacing = 30 * scaleFactor;
+
+    const refWidth = NODE_SIZES[referenceNode.type as keyof typeof NODE_SIZES]?.width || 400;
+    const refHeight = NODE_SIZES[referenceNode.type as keyof typeof NODE_SIZES]?.height || 400;
+
     const searchOffsets = [
-      { x: 0, y: 100 },     // Down (priority 1)
-      { x: 0, y: -100 },    // Up (priority 2)
-      { x: 100, y: 0 },     // Right (priority 3)
-      { x: -100, y: 0 },    // Left (priority 4)
-      { x: 150, y: 150 },   // Diagonal down-right
-      { x: -150, y: 150 },  // Diagonal down-left
-      { x: 150, y: -150 },  // Diagonal up-right
-      { x: -150, y: -150 }, // Diagonal up-left
-      { x: 0, y: 250 },     // Far down
-      { x: 0, y: -250 },    // Far up
-      { x: 250, y: 0 },     // Far right
-      { x: -250, y: 0 },    // Far left
-      { x: 100, y: 500 },   // Very far down-right
-      { x: 500, y: 100 },   // Very far right-down
+      { x: refWidth + spacing, y: 0 },
+      { x: 0, y: refHeight + spacing },
+      { x: -(newNodeSize.width + spacing), y: 0 },
+      { x: 0, y: -(newNodeSize.height + spacing) },
+      { x: refWidth + spacing, y: refHeight + spacing },
+      { x: refWidth + spacing, y: -(newNodeSize.height + spacing) },
     ];
 
     for (const offset of searchOffsets) {
@@ -116,10 +137,9 @@ const Flow = () => {
         y: startY + offset.y
       };
 
-      // Check if this position overlaps with any existing node
       let hasOverlap = false;
       for (const node of nodes) {
-        const nodeSize = NODE_SIZES[node.type as 'chatNode' | 'researchNode'] || NODE_SIZES.chatNode;
+        const nodeSize = NODE_SIZES[node.type as keyof typeof NODE_SIZES] || NODE_SIZES.chatNode;
         if (checkOverlap(candidatePos, newNodeSize, node.position, nodeSize)) {
           hasOverlap = true;
           break;
@@ -131,10 +151,9 @@ const Flow = () => {
       }
     }
 
-    // If all positions overlap, fall back to a position far to the right
     return {
-      x: startX + 700,
-      y: startY + Math.random() * 200 - 100 // Add some randomness
+      x: startX + (refWidth + 300 * scaleFactor),
+      y: startY + (Math.random() * 200 - 100) * scaleFactor
     };
   };
 
@@ -189,6 +208,152 @@ const Flow = () => {
     setNodes((nds) => nds.concat(newNode));
   };
 
+
+  // Canvas Management Functions
+  const saveCurrentCanvas = useCallback(() => {
+    if (!activeCanvasId) return;
+
+    const flow = toObject();
+    setCanvases(prev => prev.map(canvas => {
+      if (canvas.id === activeCanvasId) {
+        return {
+          ...canvas,
+          nodes: flow.nodes as AppNode[],
+          edges: flow.edges,
+          viewport: flow.viewport || { x: 0, y: 0, zoom: 1 },
+          updatedAt: Date.now()
+        };
+      }
+      return canvas;
+    }));
+  }, [activeCanvasId, toObject]);
+
+  const handleNewCanvas = useCallback(() => {
+    // Save current canvas before creating new one
+    if (activeCanvasId) {
+      saveCurrentCanvas();
+    }
+
+    const newCanvasId = `canvas-${Date.now()}`;
+    const now = Date.now();
+
+    const newCanvas: Canvas = {
+      id: newCanvasId,
+      title: `New Canvas - ${new Date().toLocaleTimeString()}`,
+      nodes: [],
+      edges: [],
+      viewport: { x: 0, y: 0, zoom: 1 },
+      createdAt: now,
+      updatedAt: now
+    };
+
+    setCanvases(prev => [...prev, newCanvas]);
+    setActiveCanvasId(newCanvasId);
+
+    // Clear current view
+    setNodes([]);
+    setEdges([]);
+    setViewport({ x: 0, y: 0, zoom: 1 });
+  }, [activeCanvasId, saveCurrentCanvas, setNodes, setEdges, setViewport]);
+
+  const handleSelectCanvas = useCallback((canvasId: string) => {
+    if (canvasId === activeCanvasId) return;
+
+    // Save current canvas state
+    if (activeCanvasId) {
+      saveCurrentCanvas();
+    }
+
+    // Load selected canvas
+    const selectedCanvas = canvases.find(c => c.id === canvasId);
+    if (selectedCanvas) {
+      const restoredNodes = selectedCanvas.nodes.map((node) => ({
+        ...node,
+        data: {
+          ...node.data,
+          onBranch: onBranch,
+          onCollapse: onCollapse
+        }
+      })) as AppNode[];
+
+      setNodes(restoredNodes);
+      setEdges(selectedCanvas.edges);
+      setViewport(selectedCanvas.viewport);
+      setActiveCanvasId(canvasId);
+    }
+  }, [activeCanvasId, canvases, saveCurrentCanvas, setNodes, setEdges, setViewport]);
+
+  const handleDeleteCanvas = useCallback((canvasId: string) => {
+    if (canvases.length <= 1) {
+      return; // Don't delete last canvas
+    }
+
+    setCanvases(prev => {
+      const newCanvases = prev.filter(c => c.id !== canvasId);
+
+      // If deleting the active canvas, switch to the first available canvas
+      if (canvasId === activeCanvasId) {
+        const newActiveCanvas = newCanvases[0];
+        setActiveCanvasId(newActiveCanvas.id);
+
+        // Load the new active canvas
+        const restoredNodes = newActiveCanvas.nodes.map((node) => ({
+          ...node,
+          data: {
+            ...node.data,
+            onBranch: onBranch,
+            onCollapse: onCollapse
+          }
+        })) as AppNode[];
+
+        setNodes(restoredNodes);
+        setEdges(newActiveCanvas.edges);
+        setViewport(newActiveCanvas.viewport);
+      }
+
+      return newCanvases;
+    });
+  }, [canvases.length, activeCanvasId, setNodes, setEdges, setViewport]);
+
+  const handleRenameCanvas = useCallback((canvasId: string, newTitle: string) => {
+    setCanvases(prev => prev.map(canvas =>
+      canvas.id === canvasId
+        ? { ...canvas, title: newTitle, updatedAt: Date.now() }
+        : canvas
+    ));
+  }, []);
+
+  // Auto-title generation when root node gets first response
+  React.useEffect(() => {
+    if (!activeCanvasId || !canvases) return;
+
+    const activeCanvas = canvases.find(c => c.id === activeCanvasId);
+    if (!activeCanvas) return;
+
+    // Check if title is still default and we haven't attempted generation for this canvas
+    if (activeCanvas.title.startsWith('New Canvas') && !titleGenerationAttempted.has(activeCanvasId)) {
+      // Find root node with AI response
+      const rootNode = nodes.find(n => n.type === 'chatNode' && n.data.isRoot && n.data.aiResponse);
+
+      if (rootNode && rootNode.type === 'chatNode') {
+        const chatNodeData = rootNode.data as ChatNodeData;
+        const conversationContent = `User: ${chatNodeData.inputText || ''}\nAI: ${chatNodeData.aiResponse || ''}`;
+
+        // Mark as attempted to avoid multiple calls
+        setTitleGenerationAttempted(prev => new Set(prev).add(activeCanvasId));
+
+        // Generate title asynchronously
+        generateCanvasTitle(conversationContent).then(title => {
+          setCanvases(prev => prev.map(canvas => {
+            if (canvas.id === activeCanvasId) {
+              return { ...canvas, title, updatedAt: Date.now() };
+            }
+            return canvas;
+          }));
+        });
+      }
+    }
+  }, [nodes, activeCanvasId, canvases, titleGenerationAttempted]);
 
 
 
@@ -397,15 +562,66 @@ const Flow = () => {
     [setEdges, getEdges]
   );
 
-  // --- Load from localStorage on mount ---
+  // --- Load from localStorage on mount with migration ---
   const [isLoaded, setIsLoaded] = React.useState(false);
   React.useEffect(() => {
     if (isLoaded) return;
-    const saved = localStorage.getItem(STORAGE_KEY);
-    if (saved) {
+
+    // Try loading new multi-canvas format first
+    const savedCanvases = localStorage.getItem(STORAGE_KEY);
+    if (savedCanvases) {
       try {
-        const flow = JSON.parse(saved);
-        if (flow && flow.nodes && flow.nodes.length > 0) {
+        const canvasListState = JSON.parse(savedCanvases);
+        if (canvasListState && canvasListState.canvases && canvasListState.canvases.length > 0) {
+          setCanvases(canvasListState.canvases);
+          setActiveCanvasId(canvasListState.activeCanvasId);
+
+          // Load active canvas
+          const activeCanvas = canvasListState.canvases.find((c: Canvas) => c.id === canvasListState.activeCanvasId);
+          if (activeCanvas) {
+            const restoredNodes = activeCanvas.nodes.map((node: Node) => ({
+              ...node,
+              data: {
+                ...node.data,
+                onBranch: onBranch,
+                onCollapse: onCollapse
+              }
+            }));
+            setNodes(restoredNodes);
+            setEdges(activeCanvas.edges || []);
+            const { x = 0, y = 0, zoom = 1 } = activeCanvas.viewport || {};
+            setViewport({ x, y, zoom });
+          }
+          setIsLoaded(true);
+          return;
+        }
+      } catch (error) {
+        console.error('Failed to load new format from localStorage:', error);
+      }
+    }
+
+    // Migration: Try loading old single-canvas format
+    const oldSaved = localStorage.getItem(OLD_STORAGE_KEY);
+    if (oldSaved) {
+      try {
+        const flow = JSON.parse(oldSaved);
+        if (flow && flow.nodes) {
+          const migratedCanvasId = `canvas-${Date.now()}`;
+          const now = Date.now();
+
+          const migratedCanvas: Canvas = {
+            id: migratedCanvasId,
+            title: 'Migrated Canvas',
+            nodes: flow.nodes as AppNode[],
+            edges: flow.edges || [],
+            viewport: flow.viewport || { x: 0, y: 0, zoom: 1 },
+            createdAt: now,
+            updatedAt: now
+          };
+
+          setCanvases([migratedCanvas]);
+          setActiveCanvasId(migratedCanvasId);
+
           const restoredNodes = flow.nodes.map((node: Node) => ({
             ...node,
             data: {
@@ -418,20 +634,54 @@ const Flow = () => {
           setEdges(flow.edges || []);
           const { x = 0, y = 0, zoom = 1 } = flow.viewport || {};
           setViewport({ x, y, zoom });
+
+          // Remove old storage key
+          localStorage.removeItem(OLD_STORAGE_KEY);
+
+          setIsLoaded(true);
+          return;
         }
       } catch (error) {
-        console.error('Failed to load from localStorage:', error);
+        console.error('Failed to migrate from old format:', error);
       }
     }
+
+    // No saved state, create initial canvas
+    const initialCanvasId = `canvas-${Date.now()}`;
+    const now = Date.now();
+    const initialCanvas: Canvas = {
+      id: initialCanvasId,
+      title: `New Canvas - ${new Date().toLocaleTimeString()}`,
+      nodes: [],
+      edges: [],
+      viewport: { x: 0, y: 0, zoom: 1 },
+      createdAt: now,
+      updatedAt: now
+    };
+
+    setCanvases([initialCanvas]);
+    setActiveCanvasId(initialCanvasId);
     setIsLoaded(true);
   }, [isLoaded, onBranch, onCollapse, setNodes, setEdges, setViewport]);
 
   // --- Save to localStorage on change ---
   React.useEffect(() => {
-    if (!isLoaded) return; // Don't save during initial load
-    const flow = toObject();
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(flow));
-  }, [nodes, edges, toObject, isLoaded]);
+    if (!isLoaded || !activeCanvasId) return; // Don't save during initial load
+
+    // Save current canvas state before persisting
+    saveCurrentCanvas();
+  }, [nodes, edges, isLoaded, activeCanvasId, saveCurrentCanvas]);
+
+  // Save all canvases to localStorage whenever canvases array changes
+  React.useEffect(() => {
+    if (!isLoaded || canvases.length === 0) return;
+
+    const canvasListState = {
+      canvases,
+      activeCanvasId
+    };
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(canvasListState));
+  }, [canvases, activeCanvasId, isLoaded]);
 
   // --- Clear Functionality ---
   const onClear = useCallback(() => {
@@ -449,20 +699,32 @@ const Flow = () => {
     }
   }, [setNodes, setEdges, fitView]); // Removed onBranch from dependencies as unused here
 
-  // --- Save Functionality ---
+  // --- Save Functionality (Export All Canvases) ---
   const onSave = useCallback(() => {
-    const flow = toObject();
-    const jsonString = JSON.stringify(flow, null, 2);
+    // Save current canvas state first
+    if (activeCanvasId) {
+      saveCurrentCanvas();
+    }
+
+    // Export all canvases
+    const exportData = {
+      version: '2.0', // Multi-canvas format
+      canvases: canvases,
+      activeCanvasId: activeCanvasId,
+      exportedAt: new Date().toISOString()
+    };
+
+    const jsonString = JSON.stringify(exportData, null, 2);
     const blob = new Blob([jsonString], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.download = `chat-tree-${new Date().toISOString().slice(0, 10)}.json`;
+    link.download = `chat-tree-all-canvases-${new Date().toISOString().slice(0, 10)}.json`;
     link.click();
     URL.revokeObjectURL(url);
-  }, [toObject]);
+  }, [canvases, activeCanvasId, saveCurrentCanvas]);
 
-  // --- Load Functionality ---
+  // --- Load Functionality (Import Multi-Canvas or Single Canvas) ---
   const onRestore = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
@@ -473,16 +735,58 @@ const Flow = () => {
       if (typeof result !== 'string') return;
 
       try {
-        const flow: ReactFlowJsonObject<AppNode> = JSON.parse(result);
+        const importedData: any = JSON.parse(result);
 
-        if (flow) {
+        // Check if it's the new multi-canvas format (v2.0)
+        if (importedData.version === '2.0' && importedData.canvases) {
+          // Multi-canvas format - restore all canvases
+          const importedCanvases = importedData.canvases as Canvas[];
+          const importedActiveId = importedData.activeCanvasId as string;
+
+          // Confirm with user before replacing all canvases
+          const confirmed = confirm(
+            `此文件包含 ${importedCanvases.length} 个画布。\n导入将替换所有当前画布。\n\n确定要继续吗？`
+          );
+
+          if (!confirmed) return;
+
+          setCanvases(importedCanvases);
+          setActiveCanvasId(importedActiveId);
+
+          // Load the active canvas
+          const activeCanvas = importedCanvases.find(c => c.id === importedActiveId);
+          if (activeCanvas) {
+            const restoredNodes = activeCanvas.nodes.map((node: any) => ({
+              ...node,
+              data: {
+                ...node.data,
+                onBranch: onBranch,
+                onCollapse: onCollapse
+              }
+            })) as AppNode[];
+
+            setNodes(restoredNodes);
+            setEdges(activeCanvas.edges || []);
+            const { x = 0, y = 0, zoom = 1 } = activeCanvas.viewport || {};
+            setViewport({ x, y, zoom });
+          }
+
+          alert(`成功导入 ${importedCanvases.length} 个画布！`);
+        } else if (importedData.nodes) {
+          // Legacy single-canvas format - import as a new canvas
+          const flow: ReactFlowJsonObject<AppNode> = importedData;
+
+          const confirmed = confirm(
+            '检测到旧版单画布格式。\n将作为新画布添加到列表中。\n\n确定要导入吗？'
+          );
+
+          if (!confirmed) return;
+
           const { x = 0, y = 0, zoom = 1 } = flow.viewport || {};
 
-          // We must re-attach the current onBranch and onCollapse callback to loaded nodes
-          // because functions are not serialized in JSON.
+          // Restore node callbacks
           const restoredNodes = flow.nodes.map((node) => {
-            // Re-attach callback only for chat/research nodes that need it
-            if (node.type === 'chatNode' || node.type === 'researchNode') {
+            if (node.type === 'chatNode' || node.type === 'researchNode' || node.type === 'noteNode') {
               return {
                 ...node,
                 data: {
@@ -495,73 +799,94 @@ const Flow = () => {
             return node as AppNode;
           });
 
+          // Create a new canvas from imported data
+          const newCanvasId = `canvas-${Date.now()}`;
+          const now = Date.now();
+          const newCanvas: Canvas = {
+            id: newCanvasId,
+            title: `导入的画布 - ${new Date().toLocaleTimeString()}`,
+            nodes: restoredNodes,
+            edges: flow.edges || [],
+            viewport: { x, y, zoom },
+            createdAt: now,
+            updatedAt: now
+          };
+
+          setCanvases(prev => [...prev, newCanvas]);
+          setActiveCanvasId(newCanvasId);
           setNodes(restoredNodes);
           setEdges(flow.edges || []);
           setViewport({ x, y, zoom });
+
+          alert('成功导入为新画布！');
+        } else {
+          alert('无效的文件格式');
         }
       } catch (error) {
         console.error('Failed to parse JSON:', error);
-        alert('Invalid JSON file.');
+        alert('文件解析失败，请检查文件格式');
       }
     };
     reader.readAsText(file);
     // Reset input so same file can be selected again
     event.target.value = '';
-  }, [onBranch, onCollapse, setNodes, setEdges, setViewport]);
+  }, [onBranch, onCollapse, setNodes, setEdges, setViewport, setCanvases, setActiveCanvasId]);
 
   const triggerFileUpload = () => {
     fileInputRef.current?.click();
   };
 
-  return (
-    <div className="w-full h-screen bg-slate-50 relative font-sans">
-      <ReactFlow
-        nodes={nodes}
-        edges={edges}
-        onNodesChange={onNodesChange}
-        onEdgesChange={onEdgesChange}
-        onConnect={onConnect}
-        nodeTypes={nodeTypes}
-        fitView
-        minZoom={0.1}
-        maxZoom={1.5}
-        deleteKeyCode={['Backspace', 'Delete']}
-        defaultEdgeOptions={{
-          type: 'smoothstep',
-          animated: true,
-          style: { stroke: '#cbd5e1', strokeWidth: 2 },
-          markerEnd: {
-            type: MarkerType.ArrowClosed,
-            color: '#cbd5e1',
-          },
-        }}
-      >
-        <Background
-          variant={BackgroundVariant.Dots}
-          gap={20}
-          size={1}
-          color="#cbd5e1"
-        />
-        <Controls className="bg-white shadow-lg border border-slate-200 rounded-lg overflow-hidden text-slate-600" />
 
-        {/* Instructions & Actions Overlay */}
-        <div className="absolute top-4 left-4 z-50 flex flex-col gap-3">
-          {/* Title & Info */}
-          <div className="bg-white/90 backdrop-blur-sm p-4 rounded-xl shadow-sm border border-slate-200 max-w-sm pointer-events-none select-none">
-            <h1 className="font-bold text-slate-800 text-lg flex items-center gap-2">
-              <LucideQuote className="w-5 h-5 text-blue-600" />
-              Chat Tree
-            </h1>
-            <p className="text-sm text-slate-600 mt-1">
-              Add a node to start. <span className="font-semibold text-slate-900">Highlight text</span> in answers to branch out.
-            </p>
-          </div>
+  return (
+    <div className="w-full h-screen flex bg-slate-50 relative font-sans">
+      {/* Canvas List Sidebar */}
+      <CanvasList
+        canvases={canvases}
+        activeCanvasId={activeCanvasId}
+        isCollapsed={isCanvasListCollapsed}
+        onToggleCollapse={() => setIsCanvasListCollapsed(!isCanvasListCollapsed)}
+        onSelectCanvas={handleSelectCanvas}
+        onDeleteCanvas={handleDeleteCanvas}
+        onRenameCanvas={handleRenameCanvas}
+        onNewCanvas={handleNewCanvas}
+      />
+
+      {/* Main Canvas Area */}
+      <div className="flex-1 relative">
+        <ReactFlow
+          nodes={nodes}
+          edges={edges}
+          onNodesChange={onNodesChange}
+          onEdgesChange={onEdgesChange}
+          onConnect={onConnect}
+          nodeTypes={nodeTypes}
+          fitView
+          minZoom={0.1}
+          maxZoom={1.5}
+          deleteKeyCode={['Backspace', 'Delete']}
+          defaultEdgeOptions={{
+            type: 'smoothstep',
+            animated: true,
+            style: { stroke: '#cbd5e1', strokeWidth: 2 },
+            markerEnd: {
+              type: MarkerType.ArrowClosed,
+              color: '#cbd5e1',
+            },
+          }}
+        >
+          <Background
+            variant={BackgroundVariant.Dots}
+            gap={20}
+            size={1}
+            color="#cbd5e1"
+          />
+          <Controls className="bg-white shadow-lg border border-slate-200 rounded-lg overflow-hidden text-slate-600" />
 
           {/* Create Node Buttons */}
-          <div className="flex gap-2">
+          <div className="absolute top-4 left-4 z-50 flex gap-2">
             <button
               onClick={handleAddChatNode}
-              className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-3 py-2 rounded-lg font-medium shadow-sm transition-all"
+              className="flex items-center gap-2 bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 text-white px-3 py-2 rounded-lg font-medium shadow-sm transition-all duration-200 hover:shadow-lg hover:-translate-y-0.5 active:translate-y-0"
             >
               <div className="flex items-center justify-center bg-white/20 p-1 rounded">
                 <MessageSquare className="w-4 h-4" />
@@ -570,7 +895,7 @@ const Flow = () => {
             </button>
             <button
               onClick={handleAddResearchNode}
-              className="flex items-center gap-2 bg-purple-600 hover:bg-purple-700 text-white px-3 py-2 rounded-lg font-medium shadow-sm transition-all"
+              className="flex items-center gap-2 bg-gradient-to-r from-purple-600 to-purple-700 hover:from-purple-700 hover:to-purple-800 text-white px-3 py-2 rounded-lg font-medium shadow-sm transition-all duration-200 hover:shadow-lg hover:-translate-y-0.5 active:translate-y-0"
             >
               <div className="flex items-center justify-center bg-white/20 p-1 rounded">
                 <BookOpenIcon className="w-4 h-4" />
@@ -579,7 +904,7 @@ const Flow = () => {
             </button>
             <button
               onClick={handleAddNoteNode}
-              className="flex items-center gap-2 bg-amber-600 hover:bg-amber-700 text-white px-3 py-2 rounded-lg font-medium shadow-sm transition-all"
+              className="flex items-center gap-2 bg-gradient-to-r from-amber-600 to-amber-700 hover:from-amber-700 hover:to-amber-800 text-white px-3 py-2 rounded-lg font-medium shadow-sm transition-all duration-200 hover:shadow-lg hover:-translate-y-0.5 active:translate-y-0"
             >
               <div className="flex items-center justify-center bg-white/20 p-1 rounded">
                 <FileText className="w-4 h-4" />
@@ -588,9 +913,8 @@ const Flow = () => {
             </button>
           </div>
 
-
           {/* Action Buttons */}
-          <div className="flex gap-2">
+          <div className="absolute top-4 left-4 mt-14 z-50 flex gap-2">
             <button
               onClick={onClear}
               className="w-9 h-9 bg-white hover:bg-red-50 text-slate-700 hover:text-red-600 rounded-lg shadow-sm border border-slate-200 flex items-center justify-center transition-colors"
@@ -637,14 +961,29 @@ const Flow = () => {
               className="hidden"
             />
           </div>
+
+        </ReactFlow>
+
+        {/* Modern Chat Tree Logo */}
+        <div className="absolute top-4 right-4 z-50">
+          <div className="flex flex-col items-center gap-1 bg-white/80 backdrop-blur-md px-4 py-3 rounded-2xl shadow-lg border border-white/20 transition-all duration-300 hover:shadow-xl hover:bg-white/90">
+            <div className="flex items-center gap-2">
+              <div className="w-8 h-8 bg-gradient-to-br from-blue-500 to-purple-600 rounded-full flex items-center justify-center">
+                <GitBranch className="w-4 h-4 text-white" />
+              </div>
+              <span className="font-semibold text-slate-800 text-sm">Chat Tree</span>
+            </div>
+            <p className="text-xs text-slate-500 italic">Infinite canvas for deep thinker</p>
+          </div>
         </div>
 
-      </ReactFlow>
-      <SettingsModal
-        isOpen={isSettingsOpen}
-        onClose={() => setIsSettingsOpen(false)}
-      />
-    </div>
+
+        <SettingsModal
+          isOpen={isSettingsOpen}
+          onClose={() => setIsSettingsOpen(false)}
+        />
+      </div >
+    </div >
   );
 };
 

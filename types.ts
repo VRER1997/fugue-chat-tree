@@ -66,3 +66,19 @@ export type ResearchNodeType = Node<ResearchNodeData, 'researchNode'>;
 export type NoteNodeType = Node<NoteNodeData, 'noteNode'>;
 
 export type AppNode = ChatNodeType | ResearchNodeType | NoteNodeType;
+
+// Canvas Management Types
+export interface Canvas {
+  id: string;
+  title: string;
+  nodes: AppNode[];
+  edges: any[]; // Using any[] to match Edge type from @xyflow/react
+  viewport: { x: number; y: number; zoom: number };
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface CanvasListState {
+  canvases: Canvas[];
+  activeCanvasId: string;
+}
