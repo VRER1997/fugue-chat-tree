@@ -260,52 +260,48 @@ export const SettingsModal = ({
                                     <label className="block text-sm font-medium text-slate-700 mb-3">
                                         存储模式
                                     </label>
-                                    <div className="space-y-2">
+                                    <div className="grid grid-cols-2 gap-3">
                                         {/* LocalStorage Option */}
-                                        <label className={`flex items-start gap-3 p-4 rounded-lg border-2 cursor-pointer transition-all ${storageMode === 'localStorage'
+                                        <label className={`flex flex-col p-4 rounded-lg border-2 cursor-pointer transition-all ${storageMode === 'localStorage'
                                             ? 'border-blue-500 bg-blue-50'
                                             : 'border-slate-200 hover:border-slate-300 bg-white'
                                             }`}>
-                                            <input
-                                                type="radio"
-                                                name="storageMode"
-                                                value="localStorage"
-                                                checked={storageMode === 'localStorage'}
-                                                onChange={() => onStorageModeChange?.('localStorage')}
-                                                className="mt-0.5"
-                                            />
-                                            <div className="flex-1">
-                                                <div className="text-sm font-medium text-slate-700">浏览器存储 (LocalStorage)</div>
-                                                <div className="text-xs text-slate-500 mt-1">
-                                                    数据保存在浏览器中，简单快速但可能被清除
-                                                </div>
+                                            <div className="flex items-center gap-2 mb-2">
+                                                <input
+                                                    type="radio"
+                                                    name="storageMode"
+                                                    value="localStorage"
+                                                    checked={storageMode === 'localStorage'}
+                                                    onChange={() => onStorageModeChange?.('localStorage')}
+                                                />
+                                                <div className="text-sm font-medium text-slate-700">浏览器存储</div>
+                                            </div>
+                                            <div className="text-xs text-slate-500">
+                                                数据保存在浏览器中，简单快速但可能被清除
                                             </div>
                                         </label>
 
                                         {/* File System Option */}
-                                        <label className={`flex items-start gap-3 p-4 rounded-lg border-2 transition-all ${!fileSystemService.isSupported()
+                                        <label className={`flex flex-col p-4 rounded-lg border-2 transition-all ${!fileSystemService.isSupported()
                                             ? 'opacity-50 cursor-not-allowed border-slate-200 bg-slate-50'
                                             : storageMode === 'fileSystem'
                                                 ? 'border-blue-500 bg-blue-50 cursor-pointer'
                                                 : 'border-slate-200 hover:border-slate-300 bg-white cursor-pointer'
                                             }`}>
-                                            <input
-                                                type="radio"
-                                                name="storageMode"
-                                                value="fileSystem"
-                                                checked={storageMode === 'fileSystem'}
-                                                onChange={() => onStorageModeChange?.('fileSystem')}
-                                                disabled={!fileSystemService.isSupported()}
-                                                className="mt-0.5"
-                                            />
-                                            <div className="flex-1">
-                                                <div className="flex items-center gap-2">
-                                                    <div className="text-sm font-medium text-slate-700">本地文件系统</div>
-                                                    <span className="px-2 py-0.5 bg-green-100 text-green-700 text-xs font-medium rounded">推荐</span>
-                                                </div>
-                                                <div className="text-xs text-slate-500 mt-1">
-                                                    实时保存到本地硬盘，数据更安全可靠
-                                                </div>
+                                            <div className="flex items-center gap-2 mb-2">
+                                                <input
+                                                    type="radio"
+                                                    name="storageMode"
+                                                    value="fileSystem"
+                                                    checked={storageMode === 'fileSystem'}
+                                                    onChange={() => onStorageModeChange?.('fileSystem')}
+                                                    disabled={!fileSystemService.isSupported()}
+                                                />
+                                                <div className="text-sm font-medium text-slate-700">本地文件系统</div>
+                                                <span className="px-2 py-0.5 bg-green-100 text-green-700 text-xs font-medium rounded">推荐</span>
+                                            </div>
+                                            <div className="text-xs text-slate-500">
+                                                实时保存到本地硬盘，数据更安全可靠
                                             </div>
                                         </label>
                                     </div>

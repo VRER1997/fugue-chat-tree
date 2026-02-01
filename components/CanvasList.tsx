@@ -233,7 +233,7 @@ export const CanvasList: React.FC<CanvasListProps> = ({
                                     <div className="font-medium text-slate-700">File System</div>
                                     {fileSystemPath && (
                                         <div className="text-slate-500 truncate" title={fileSystemPath}>
-                                            {fileSystemPath}/chat-tree-data
+                                            {fileSystemPath}
                                         </div>
                                     )}
                                 </div>
