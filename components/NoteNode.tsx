@@ -1,7 +1,7 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { Handle, Position, NodeProps, useReactFlow } from '@xyflow/react';
 import ReactMarkdown from 'react-markdown';
-import { FileText, Trash2, GitFork } from 'lucide-react';
+import { FileText, Trash2, GitFork, ChevronUp, ChevronDown } from 'lucide-react';
 import remarkMath from 'remark-math';
 import remarkGfm from 'remark-gfm';
 import rehypeKatex from 'rehype-katex';
@@ -14,6 +14,7 @@ export const NoteNode = ({ id, data, isConnectable, selected }: NodeProps<NoteNo
     const [content, setContent] = useState(data.content || '');
     const [showQuoteBtn, setShowQuoteBtn] = useState(false);
     const [selectedText, setSelectedText] = useState('');
+    const [isContentCollapsed, setIsContentCollapsed] = useState(false);
 
     const contentRef = useRef<HTMLDivElement>(null);
     const nodeRef = useRef<HTMLDivElement>(null);
@@ -125,9 +126,16 @@ export const NoteNode = ({ id, data, isConnectable, selected }: NodeProps<NoteNo
             />
 
             {/* Header */}
-            <div className="flex items-center gap-2 px-4 py-3 border-b border-slate-100 bg-gradient-to-r from-amber-50 to-orange-50">
+            <div className="flex items-center gap-2 px-4 py-3 pr-20 border-b border-slate-100 bg-gradient-to-r from-amber-50 to-orange-50">
                 <FileText className="w-4 h-4 text-amber-600" />
                 <span className="text-sm font-semibold text-slate-700">Note</span>
+                <button
+                    onClick={() => setIsContentCollapsed(!isContentCollapsed)}
+                    className="ml-auto p-1 text-slate-400 hover:text-amber-600 hover:bg-amber-100 rounded transition-colors nodrag"
+                    title={isContentCollapsed ? "Expand editor" : "Collapse editor"}
+                >
+                    {isContentCollapsed ? <ChevronDown className="w-4 h-4" /> : <ChevronUp className="w-4 h-4" />}
+                </button>
             </div>
 
             {/* Top Right Controls */}
@@ -167,21 +175,23 @@ export const NoteNode = ({ id, data, isConnectable, selected }: NodeProps<NoteNo
                 }}
             >
                 {/* Textarea for editing */}
-                <textarea
-                    ref={textareaRef}
-                    value={content}
-                    onChange={handleContentChange}
-                    onMouseDown={(e) => e.stopPropagation()}
-                    onPointerDown={(e) => e.stopPropagation()}
-                    placeholder="Write your notes here... (supports Markdown)"
-                    className="w-full min-h-[150px] p-3 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 resize-none font-sans text-sm text-slate-700 leading-relaxed nodrag"
-                    style={{ height: 'auto' }}
-                />
+                {!isContentCollapsed && (
+                    <textarea
+                        ref={textareaRef}
+                        value={content}
+                        onChange={handleContentChange}
+                        onMouseDown={(e) => e.stopPropagation()}
+                        onPointerDown={(e) => e.stopPropagation()}
+                        placeholder="Write your notes here... (supports Markdown)"
+                        className="w-full min-h-[150px] p-3 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 resize-none font-sans text-sm text-slate-700 leading-relaxed nodrag"
+                        style={{ height: 'auto' }}
+                    />
+                )}
 
                 {/* Markdown Preview */}
                 {content && (
-                    <div className="mt-4 pt-4 border-t border-slate-100">
-                        <div className="text-xs font-semibold text-slate-400 mb-2">PREVIEW</div>
+                    <div className={!isContentCollapsed ? "mt-4 pt-4 border-t border-slate-100" : ""}>
+                        {!isContentCollapsed && <div className="text-xs font-semibold text-slate-400 mb-2">PREVIEW</div>}
                         <div
                             ref={contentRef}
                             className="prose prose-sm max-w-none prose-slate prose-headings:text-slate-800 prose-p:text-slate-600 prose-a:text-blue-600 prose-code:text-pink-600 prose-pre:bg-slate-50 prose-pre:border prose-pre:border-slate-200"
