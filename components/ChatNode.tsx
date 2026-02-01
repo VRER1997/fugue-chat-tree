@@ -8,7 +8,7 @@ import remarkGfm from 'remark-gfm';
 import rehypeKatex from 'rehype-katex';
 import { visit } from 'unist-util-visit';
 import 'katex/dist/katex.min.css';
-import { ChatNodeData, ResearchNodeData } from '../types';
+import { ChatNodeData, ResearchNodeData, NoteNodeData } from '../types';
 
 export const ChatNode = ({ id, data, isConnectable, selected }: NodeProps<ChatNodeData>) => {
   const { deleteElements, updateNodeData, getNodes, getEdges } = useReactFlow();
@@ -144,7 +144,7 @@ export const ChatNode = ({ id, data, isConnectable, selected }: NodeProps<ChatNo
       // We need to typecase broadly to support both node types for traversal
       const nodes = getNodes();
       const edges = getEdges();
-      const ancestorChain: (ChatNodeData | ResearchNodeData)[] = [];
+      const ancestorChain: (ChatNodeData | ResearchNodeData | NoteNodeData)[] = [];
       let currentId = id;
 
       while (true) {
@@ -172,6 +172,15 @@ export const ChatNode = ({ id, data, isConnectable, selected }: NodeProps<ChatNo
           // Research Answer -> Assistant
           if (researchNode.answer) {
             msgs.push({ role: 'assistant', content: researchNode.answer });
+          }
+        } else if ('content' in node && !('inputText' in node)) {
+          // Note Node - Include as contextual system message
+          const noteNode = node as NoteNodeData;
+          if (noteNode.content) {
+            msgs.push({
+              role: 'system',
+              content: `[Context from parent note]:\n${noteNode.content}`
+            });
           }
         } else {
           // Chat Node
@@ -532,6 +541,8 @@ INSTRUCTIONS:
           placeholder={data.isRoot ? "Start a conversation..." : "Ask follow up..."}
           value={inputText}
           onChange={(e) => setInputText(e.target.value)}
+          onMouseDown={(e) => e.stopPropagation()}
+          onPointerDown={(e) => e.stopPropagation()}
           onBlur={handleBlur}
           onKeyDown={(e) => {
             if (e.key === 'Enter' && !e.shiftKey) {
@@ -622,20 +633,11 @@ INSTRUCTIONS:
               const element = e.currentTarget;
               const hasScrollbar = element.scrollHeight > element.clientHeight;
 
-              if (!hasScrollbar) {
-                // No scrollbar, allow canvas panning
-                return;
-              }
-
-              // Check if at scroll boundary
-              const isScrollingDown = e.deltaY > 0;
-              const isAtTop = element.scrollTop === 0;
-              const isAtBottom = element.scrollTop + element.clientHeight >= element.scrollHeight - 1;
-
-              // Only stop propagation if we're scrolling within bounds
-              if ((isScrollingDown && !isAtBottom) || (!isScrollingDown && !isAtTop)) {
+              if (hasScrollbar) {
+                // Has scrollbar, always stop propagation to allow scrolling
                 e.stopPropagation();
               }
+              // If no scrollbar, allow event to bubble for canvas zoom
             }}
             className={`text-xs leading-normal text-slate-700 select-text cursor-text nodrag transition-all duration-300 ${isResponseCollapsed
               ? 'max-h-72 overflow-y-auto custom-scrollbar'

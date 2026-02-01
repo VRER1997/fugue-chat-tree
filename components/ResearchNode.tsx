@@ -274,9 +274,11 @@ export const ResearchNode = ({ id, data, isConnectable, selected }: NodeProps<Re
                         <textarea
                             value={query}
                             onChange={(e) => setQuery(e.target.value)}
+                            onMouseDown={(e) => e.stopPropagation()}
+                            onPointerDown={(e) => e.stopPropagation()}
                             placeholder="e.g., 'Impact of solid state batteries on EV market 2026'..."
                             rows={4}
-                            className="w-full resize-none p-4 rounded-xl border border-slate-200 bg-slate-50 text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all font-medium"
+                            className="w-full resize-none p-4 rounded-xl border border-slate-200 bg-slate-50 text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all font-medium nodrag"
                             onKeyDown={(e) => {
                                 if (e.key === 'Enter' && !e.shiftKey) {
                                     e.preventDefault();
@@ -353,20 +355,11 @@ export const ResearchNode = ({ id, data, isConnectable, selected }: NodeProps<Re
                                         const element = e.currentTarget;
                                         const hasScrollbar = element.scrollHeight > element.clientHeight;
 
-                                        if (!hasScrollbar) {
-                                            // No scrollbar, allow canvas panning
-                                            return;
-                                        }
-
-                                        // Check if at scroll boundary
-                                        const isScrollingDown = e.deltaY > 0;
-                                        const isAtTop = element.scrollTop === 0;
-                                        const isAtBottom = element.scrollTop + element.clientHeight >= element.scrollHeight - 1;
-
-                                        // Only stop propagation if we're scrolling within bounds
-                                        if ((isScrollingDown && !isAtBottom) || (!isScrollingDown && !isAtTop)) {
+                                        if (hasScrollbar) {
+                                            // Has scrollbar, always stop propagation to allow scrolling
                                             e.stopPropagation();
                                         }
+                                        // If no scrollbar, allow event to bubble for canvas zoom
                                     }}
                                     className={`
                                         p-6 text-xs leading-normal text-slate-700 select-text cursor-text nodrag prose prose-slate max-w-none 

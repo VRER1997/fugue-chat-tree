@@ -154,25 +154,16 @@ export const NoteNode = ({ id, data, isConnectable, selected }: NodeProps<NoteNo
 
             {/* Content Area */}
             <div
-                className="flex-1 overflow-auto p-4"
+                className="flex-1 overflow-auto p-4 nowheel"
                 onWheel={(e) => {
                     const element = e.currentTarget;
                     const hasScrollbar = element.scrollHeight > element.clientHeight;
 
-                    if (!hasScrollbar) {
-                        // No scrollbar, allow canvas panning
-                        return;
-                    }
-
-                    // Check if at scroll boundary
-                    const isScrollingDown = e.deltaY > 0;
-                    const isAtTop = element.scrollTop === 0;
-                    const isAtBottom = element.scrollTop + element.clientHeight >= element.scrollHeight - 1;
-
-                    // Only stop propagation if we're scrolling within bounds
-                    if ((isScrollingDown && !isAtBottom) || (!isScrollingDown && !isAtTop)) {
+                    if (hasScrollbar) {
+                        // Has scrollbar, always stop propagation to allow scrolling
                         e.stopPropagation();
                     }
+                    // If no scrollbar, allow event to bubble for canvas zoom
                 }}
             >
                 {/* Textarea for editing */}
@@ -180,8 +171,10 @@ export const NoteNode = ({ id, data, isConnectable, selected }: NodeProps<NoteNo
                     ref={textareaRef}
                     value={content}
                     onChange={handleContentChange}
+                    onMouseDown={(e) => e.stopPropagation()}
+                    onPointerDown={(e) => e.stopPropagation()}
                     placeholder="Write your notes here... (supports Markdown)"
-                    className="w-full min-h-[150px] p-3 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 resize-none font-sans text-sm text-slate-700 leading-relaxed"
+                    className="w-full min-h-[150px] p-3 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 resize-none font-sans text-sm text-slate-700 leading-relaxed nodrag"
                     style={{ height: 'auto' }}
                 />
 
