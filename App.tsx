@@ -66,9 +66,12 @@ const initialNodes: Node<ChatNodeData>[] = [
 const Flow = () => {
   const [nodes, setNodes, onNodesChange] = useNodesState<AppNode>([]); // Start empty
   const [edges, setEdges, onEdgesChange] = useEdgesState([]);
-  const { getNode, getNodes, getEdges, toObject, setViewport, fitView, getZoom } = useReactFlow();
+  const { getNode, getNodes, getEdges, toObject, setViewport, fitView, getZoom, setCenter } = useReactFlow();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isSettingsOpen, setIsSettingsOpen] = React.useState(false);
+
+  // Track newly created nodes for highlight effect
+  const [newlyCreatedNodeId, setNewlyCreatedNodeId] = React.useState<string | null>(null);
 
   // Multi-canvas state
   const [canvases, setCanvases] = React.useState<Canvas[]>([]);
@@ -133,12 +136,13 @@ const Flow = () => {
     const refHeight = NODE_SIZES[referenceNode.type as keyof typeof NODE_SIZES]?.height || 400;
 
     const searchOffsets = [
-      { x: refWidth + spacing, y: 0 },
-      { x: 0, y: refHeight + spacing },
-      { x: -(newNodeSize.width + spacing), y: 0 },
-      { x: 0, y: -(newNodeSize.height + spacing) },
-      { x: refWidth + spacing, y: refHeight + spacing },
-      { x: refWidth + spacing, y: -(newNodeSize.height + spacing) },
+      // Prioritize right and bottom (natural reading flow)
+      { x: refWidth + spacing, y: 0 },                        // Right
+      { x: refWidth + spacing, y: refHeight + spacing },      // Bottom-right diagonal
+      { x: 0, y: refHeight + spacing },                       // Below
+      { x: refWidth + spacing, y: -(newNodeSize.height + spacing) }, // Top-right
+      { x: -(newNodeSize.width + spacing), y: 0 },            // Left
+      { x: 0, y: -(newNodeSize.height + spacing) },           // Above
     ];
 
     for (const offset of searchOffsets) {
@@ -176,13 +180,28 @@ const Flow = () => {
       data: {
         id,
         inputText: '',
-        isRoot: true, // Independent nodes created manually act as roots? Or just standalone? Let's say true.
+        isRoot: true,
         isSearchEnabled: false,
         reasoningMode: 'off',
         onBranch: onBranch
-      }
+      },
+      selected: true  // Auto-select new node
     };
-    setNodes((nds) => nds.concat(newNode));
+
+    // Deselect all other nodes
+    setNodes((nds) => [...nds.map(n => ({ ...n, selected: false })), newNode]);
+
+    // Track for highlight effect
+    setNewlyCreatedNodeId(id);
+    setTimeout(() => setNewlyCreatedNodeId(null), 2100); // Clear after animation
+
+    // Auto-focus on new node (with slight delay for smooth transition)
+    setTimeout(() => {
+      setCenter(newNode.position.x + 200, newNode.position.y + 200, {
+        zoom: getZoom(),
+        duration: 400
+      });
+    }, 100);
   };
 
   const handleAddResearchNode = () => {
@@ -198,9 +217,20 @@ const Flow = () => {
         steps: [],
         answer: '',
         sources: []
-      }
+      },
+      selected: true
     };
-    setNodes((nds) => nds.concat(newNode));
+
+    setNodes((nds) => [...nds.map(n => ({ ...n, selected: false })), newNode]);
+    setNewlyCreatedNodeId(id);
+    setTimeout(() => setNewlyCreatedNodeId(null), 2100);
+
+    setTimeout(() => {
+      setCenter(newNode.position.x + 200, newNode.position.y + 200, {
+        zoom: getZoom(),
+        duration: 400
+      });
+    }, 100);
   };
 
   const handleAddNoteNode = () => {
@@ -213,9 +243,20 @@ const Flow = () => {
         id,
         content: '',
         onBranch: onBranch
-      }
+      },
+      selected: true
     };
-    setNodes((nds) => nds.concat(newNode));
+
+    setNodes((nds) => [...nds.map(n => ({ ...n, selected: false })), newNode]);
+    setNewlyCreatedNodeId(id);
+    setTimeout(() => setNewlyCreatedNodeId(null), 2100);
+
+    setTimeout(() => {
+      setCenter(newNode.position.x + 200, newNode.position.y + 150, {
+        zoom: getZoom(),
+        duration: 400
+      });
+    }, 100);
   };
 
   // File System Storage Handlers
