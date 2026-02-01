@@ -35,6 +35,7 @@ import { ChatNodeData, ResearchNodeData, NoteNodeData, AppNode, ChatNodeType, Re
 import { SettingsModal } from './components/SettingsModal';
 import { CanvasList } from './components/CanvasList';
 import { generateCanvasTitle } from './services/titleGenerator';
+import { fileSystemService } from './services/fileSystem';
 
 const nodeTypes = {
   chatNode: ChatNode,
@@ -44,6 +45,9 @@ const nodeTypes = {
 
 const STORAGE_KEY = 'chat-tree-canvases';
 const OLD_STORAGE_KEY = 'chat-tree-state'; // For migration
+
+// Storage mode type
+type StorageMode = 'localStorage' | 'fileSystem';
 
 // Initial Root Node
 const initialNodes: Node<ChatNodeData>[] = [
@@ -71,6 +75,12 @@ const Flow = () => {
   const [activeCanvasId, setActiveCanvasId] = React.useState<string>('');
   const [isCanvasListCollapsed, setIsCanvasListCollapsed] = React.useState(false);
   const [titleGenerationAttempted, setTitleGenerationAttempted] = React.useState<Set<string>>(new Set());
+
+  // Storage mode state
+  const [storageMode, setStorageMode] = React.useState<StorageMode>('localStorage');
+  const [hasFileSystemAccess, setHasFileSystemAccess] = React.useState(false);
+  const [saveStatus, setSaveStatus] = React.useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
+  const saveTimerRef = React.useRef<NodeJS.Timeout | null>(null);
 
   // Node dimensions for collision detection
   const NODE_SIZES = {
@@ -216,17 +226,27 @@ const Flow = () => {
     const flow = toObject();
     setCanvases(prev => prev.map(canvas => {
       if (canvas.id === activeCanvasId) {
-        return {
+        const updatedCanvas = {
           ...canvas,
           nodes: flow.nodes as AppNode[],
           edges: flow.edges,
           viewport: flow.viewport || { x: 0, y: 0, zoom: 1 },
           updatedAt: Date.now()
         };
+
+        // If using file system, save this canvas
+        if (storageMode === 'fileSystem' && hasFileSystemAccess) {
+          fileSystemService.saveCanvas(updatedCanvas).catch(err => {
+            console.error('Failed to save canvas to file system:', err);
+            setSaveStatus('error');
+          });
+        }
+
+        return updatedCanvas;
       }
       return canvas;
     }));
-  }, [activeCanvasId, toObject]);
+  }, [activeCanvasId, toObject, storageMode, hasFileSystemAccess]);
 
   const handleNewCanvas = useCallback(() => {
     // Save current canvas before creating new one
@@ -567,19 +587,104 @@ const Flow = () => {
   React.useEffect(() => {
     if (isLoaded) return;
 
-    // Try loading new multi-canvas format first
-    const savedCanvases = localStorage.getItem(STORAGE_KEY);
-    if (savedCanvases) {
-      try {
-        const canvasListState = JSON.parse(savedCanvases);
-        if (canvasListState && canvasListState.canvases && canvasListState.canvases.length > 0) {
-          setCanvases(canvasListState.canvases);
-          setActiveCanvasId(canvasListState.activeCanvasId);
+    const loadData = async () => {
+      // Check if file system access was previously granted
+      if (fileSystemService.isSupported()) {
+        const hasAccess = await fileSystemService.hasDirectoryAccess();
+        setHasFileSystemAccess(hasAccess);
 
-          // Load active canvas
-          const activeCanvas = canvasListState.canvases.find((c: Canvas) => c.id === canvasListState.activeCanvasId);
-          if (activeCanvas) {
-            const restoredNodes = activeCanvas.nodes.map((node: Node) => ({
+        if (hasAccess) {
+          // Try loading from file system first
+          try {
+            const { canvases: fsCanvases, activeCanvasId: fsActiveId } = await fileSystemService.loadAllCanvases();
+
+            if (fsCanvases.length > 0) {
+              setStorageMode('fileSystem');
+              setCanvases(fsCanvases);
+              setActiveCanvasId(fsActiveId || fsCanvases[0].id);
+
+              // Load active canvas
+              const activeCanvas = fsCanvases.find(c => c.id === (fsActiveId || fsCanvases[0].id));
+              if (activeCanvas) {
+                const restoredNodes = activeCanvas.nodes.map((node) => ({
+                  ...node,
+                  data: {
+                    ...node.data,
+                    onBranch: onBranch,
+                    onCollapse: onCollapse
+                  }
+                }));
+                setNodes(restoredNodes);
+                setEdges(activeCanvas.edges || []);
+                const { x = 0, y = 0, zoom = 1 } = activeCanvas.viewport || {};
+                setViewport({ x, y, zoom });
+              }
+              setIsLoaded(true);
+              return; // Successfully loaded from file system
+            }
+          } catch (error) {
+            console.error('Failed to load from file system:', error);
+            // Fall through to localStorage
+          }
+        }
+      }
+
+      // Try loading new multi-canvas format first
+      const savedCanvases = localStorage.getItem(STORAGE_KEY);
+      if (savedCanvases) {
+        try {
+          const canvasListState = JSON.parse(savedCanvases);
+          if (canvasListState && canvasListState.canvases && canvasListState.canvases.length > 0) {
+            setCanvases(canvasListState.canvases);
+            setActiveCanvasId(canvasListState.activeCanvasId);
+
+            // Load active canvas
+            const activeCanvas = canvasListState.canvases.find((c: Canvas) => c.id === canvasListState.activeCanvasId);
+            if (activeCanvas) {
+              const restoredNodes = activeCanvas.nodes.map((node: Node) => ({
+                ...node,
+                data: {
+                  ...node.data,
+                  onBranch: onBranch,
+                  onCollapse: onCollapse
+                }
+              }));
+              setNodes(restoredNodes);
+              setEdges(activeCanvas.edges || []);
+              const { x = 0, y = 0, zoom = 1 } = activeCanvas.viewport || {};
+              setViewport({ x, y, zoom });
+            }
+            setIsLoaded(true);
+            return;
+          }
+        } catch (error) {
+          console.error('Failed to load new format from localStorage:', error);
+        }
+      }
+
+      // Migration: Try loading old single-canvas format
+      const oldSaved = localStorage.getItem(OLD_STORAGE_KEY);
+      if (oldSaved) {
+        try {
+          const flow = JSON.parse(oldSaved);
+          if (flow && flow.nodes) {
+            const migratedCanvasId = `canvas-${Date.now()}`;
+            const now = Date.now();
+
+            const migratedCanvas: Canvas = {
+              id: migratedCanvasId,
+              title: 'Migrated Canvas',
+              nodes: flow.nodes as AppNode[],
+              edges: flow.edges || [],
+              viewport: flow.viewport || { x: 0, y: 0, zoom: 1 },
+              createdAt: now,
+              updatedAt: now
+            };
+
+            setCanvases([migratedCanvas]);
+            setActiveCanvasId(migratedCanvasId);
+
+            const restoredNodes = flow.nodes.map((node: Node) => ({
               ...node,
               data: {
                 ...node.data,
@@ -588,80 +693,40 @@ const Flow = () => {
               }
             }));
             setNodes(restoredNodes);
-            setEdges(activeCanvas.edges || []);
-            const { x = 0, y = 0, zoom = 1 } = activeCanvas.viewport || {};
+            setEdges(flow.edges || []);
+            const { x = 0, y = 0, zoom = 1 } = flow.viewport || {};
             setViewport({ x, y, zoom });
+
+            // Remove old storage key
+            localStorage.removeItem(OLD_STORAGE_KEY);
+
+            setIsLoaded(true);
+            return;
           }
-          setIsLoaded(true);
-          return;
+        } catch (error) {
+          console.error('Failed to migrate from old format:', error);
         }
-      } catch (error) {
-        console.error('Failed to load new format from localStorage:', error);
       }
-    }
 
-    // Migration: Try loading old single-canvas format
-    const oldSaved = localStorage.getItem(OLD_STORAGE_KEY);
-    if (oldSaved) {
-      try {
-        const flow = JSON.parse(oldSaved);
-        if (flow && flow.nodes) {
-          const migratedCanvasId = `canvas-${Date.now()}`;
-          const now = Date.now();
+      // No saved state, create initial canvas
+      const initialCanvasId = `canvas-${Date.now()}`;
+      const now = Date.now();
+      const initialCanvas: Canvas = {
+        id: initialCanvasId,
+        title: `New Canvas - ${new Date().toLocaleTimeString()}`,
+        nodes: [],
+        edges: [],
+        viewport: { x: 0, y: 0, zoom: 1 },
+        createdAt: now,
+        updatedAt: now
+      };
 
-          const migratedCanvas: Canvas = {
-            id: migratedCanvasId,
-            title: 'Migrated Canvas',
-            nodes: flow.nodes as AppNode[],
-            edges: flow.edges || [],
-            viewport: flow.viewport || { x: 0, y: 0, zoom: 1 },
-            createdAt: now,
-            updatedAt: now
-          };
-
-          setCanvases([migratedCanvas]);
-          setActiveCanvasId(migratedCanvasId);
-
-          const restoredNodes = flow.nodes.map((node: Node) => ({
-            ...node,
-            data: {
-              ...node.data,
-              onBranch: onBranch,
-              onCollapse: onCollapse
-            }
-          }));
-          setNodes(restoredNodes);
-          setEdges(flow.edges || []);
-          const { x = 0, y = 0, zoom = 1 } = flow.viewport || {};
-          setViewport({ x, y, zoom });
-
-          // Remove old storage key
-          localStorage.removeItem(OLD_STORAGE_KEY);
-
-          setIsLoaded(true);
-          return;
-        }
-      } catch (error) {
-        console.error('Failed to migrate from old format:', error);
-      }
-    }
-
-    // No saved state, create initial canvas
-    const initialCanvasId = `canvas-${Date.now()}`;
-    const now = Date.now();
-    const initialCanvas: Canvas = {
-      id: initialCanvasId,
-      title: `New Canvas - ${new Date().toLocaleTimeString()}`,
-      nodes: [],
-      edges: [],
-      viewport: { x: 0, y: 0, zoom: 1 },
-      createdAt: now,
-      updatedAt: now
+      setCanvases([initialCanvas]);
+      setActiveCanvasId(initialCanvasId);
+      setIsLoaded(true);
     };
 
-    setCanvases([initialCanvas]);
-    setActiveCanvasId(initialCanvasId);
-    setIsLoaded(true);
+    loadData();
   }, [isLoaded, onBranch, onCollapse, setNodes, setEdges, setViewport]);
 
   // --- Save to localStorage on change ---
