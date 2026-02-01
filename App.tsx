@@ -128,7 +128,7 @@ const Flow = () => {
     const startY = referenceNode.position.y;
 
     // Fixed spacing in canvas coordinates for consistent visual distance
-    const spacing = 30;
+    const spacing = 10;
 
     const refWidth = NODE_SIZES[referenceNode.type as keyof typeof NODE_SIZES]?.width || 400;
     const refHeight = NODE_SIZES[referenceNode.type as keyof typeof NODE_SIZES]?.height || 400;
