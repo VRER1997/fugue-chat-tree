@@ -111,7 +111,6 @@ const Flow = () => {
   // Helper to get a good position for a new node
   const getNewNodePosition = (nodeType: 'chatNode' | 'researchNode' | 'noteNode' = 'chatNode') => {
     const newNodeSize = NODE_SIZES[nodeType];
-    const zoom = getZoom();
 
     // If no nodes, center it relative to viewport or window center (simplified)
     if (nodes.length === 0) {
@@ -128,9 +127,8 @@ const Flow = () => {
     const startX = referenceNode.position.x;
     const startY = referenceNode.position.y;
 
-    // ScaleFactor: If zoom is 0.5 (zoomed out), we want gap to be larger (e.g. 200px) so on screen it looks like 100px.
-    const scaleFactor = 1 / Math.max(zoom, 0.1);
-    const spacing = 30 * scaleFactor;
+    // Fixed spacing in canvas coordinates for consistent visual distance
+    const spacing = 30;
 
     const refWidth = NODE_SIZES[referenceNode.type as keyof typeof NODE_SIZES]?.width || 400;
     const refHeight = NODE_SIZES[referenceNode.type as keyof typeof NODE_SIZES]?.height || 400;
@@ -165,9 +163,10 @@ const Flow = () => {
       }
     }
 
+    // Fallback position if all preferred positions are occupied
     return {
-      x: startX + (refWidth + 300 * scaleFactor),
-      y: startY + (Math.random() * 200 - 100) * scaleFactor
+      x: startX + refWidth + 300,
+      y: startY + (Math.random() * 200 - 100)
     };
   };
 
