@@ -218,6 +218,38 @@ const Flow = () => {
     setNodes((nds) => nds.concat(newNode));
   };
 
+  // File System Storage Handlers
+  const handleStorageModeChange = useCallback(async (mode: StorageMode) => {
+    if (mode === 'fileSystem' && !hasFileSystemAccess) {
+      // Need to request access first
+      const success = await fileSystemService.requestDirectoryAccess();
+      if (success) {
+        setHasFileSystemAccess(true);
+        setStorageMode('fileSystem');
+        // Save metadata
+        await fileSystemService.saveMetadata({ activeCanvasId });
+      }
+    } else {
+      setStorageMode(mode);
+    }
+  }, [hasFileSystemAccess, activeCanvasId]);
+
+  const handleRequestFileSystemAccess = useCallback(async () => {
+    const success = await fileSystemService.requestDirectoryAccess();
+    if (success) {
+      setHasFileSystemAccess(true);
+      setStorageMode('fileSystem');
+      // Optional: migrate existing data
+      if (canvases.length > 0) {
+        for (const canvas of canvases) {
+          await fileSystemService.saveCanvas(canvas);
+        }
+        await fileSystemService.saveMetadata({ activeCanvasId });
+      }
+    }
+    return success;
+  }, [canvases, activeCanvasId]);
+
 
   // Canvas Management Functions
   const saveCurrentCanvas = useCallback(() => {
@@ -1046,6 +1078,11 @@ const Flow = () => {
         <SettingsModal
           isOpen={isSettingsOpen}
           onClose={() => setIsSettingsOpen(false)}
+          storageMode={storageMode}
+          hasFileSystemAccess={hasFileSystemAccess}
+          onStorageModeChange={handleStorageModeChange}
+          onRequestFileSystemAccess={handleRequestFileSystemAccess}
+          fileSystemPath={fileSystemService.getDirectoryPath()}
         />
       </div >
     </div >
