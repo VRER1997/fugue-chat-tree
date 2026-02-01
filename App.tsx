@@ -969,6 +969,8 @@ const Flow = () => {
         onDeleteCanvas={handleDeleteCanvas}
         onRenameCanvas={handleRenameCanvas}
         onNewCanvas={handleNewCanvas}
+        storageMode={storageMode}
+        fileSystemPath={fileSystemService.getDirectoryPath()}
       />
 
       {/* Main Canvas Area */}

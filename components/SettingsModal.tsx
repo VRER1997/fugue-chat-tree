@@ -64,7 +64,7 @@ export const SettingsModal = ({
 
     return (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4 animate-in fade-in duration-200">
-            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl overflow-hidden flex flex-col md:flex-row max-h-[90vh] h-auto md:h-[600px]">
+            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl overflow-hidden flex flex-col md:flex-row max-h-[90vh] h-auto md:h-[600px]">
                 {/* Sidebar */}
                 <div className="w-full md:w-64 bg-slate-50 border-r border-slate-200 p-4 flex flex-col gap-2">
                     <div className="text-sm font-bold text-slate-400 mb-2 uppercase tracking-wider px-2">Settings</div>
@@ -238,8 +238,8 @@ export const SettingsModal = ({
                                         </div>
                                     </div>
                                     <div className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-medium ${fileSystemService.isSupported()
-                                            ? 'bg-green-100 text-green-700'
-                                            : 'bg-red-100 text-red-700'
+                                        ? 'bg-green-100 text-green-700'
+                                        : 'bg-red-100 text-red-700'
                                         }`}>
                                         {fileSystemService.isSupported() ? (
                                             <>
@@ -263,8 +263,8 @@ export const SettingsModal = ({
                                     <div className="space-y-2">
                                         {/* LocalStorage Option */}
                                         <label className={`flex items-start gap-3 p-4 rounded-lg border-2 cursor-pointer transition-all ${storageMode === 'localStorage'
-                                                ? 'border-blue-500 bg-blue-50'
-                                                : 'border-slate-200 hover:border-slate-300 bg-white'
+                                            ? 'border-blue-500 bg-blue-50'
+                                            : 'border-slate-200 hover:border-slate-300 bg-white'
                                             }`}>
                                             <input
                                                 type="radio"
@@ -284,10 +284,10 @@ export const SettingsModal = ({
 
                                         {/* File System Option */}
                                         <label className={`flex items-start gap-3 p-4 rounded-lg border-2 transition-all ${!fileSystemService.isSupported()
-                                                ? 'opacity-50 cursor-not-allowed border-slate-200 bg-slate-50'
-                                                : storageMode === 'fileSystem'
-                                                    ? 'border-blue-500 bg-blue-50 cursor-pointer'
-                                                    : 'border-slate-200 hover:border-slate-300 bg-white cursor-pointer'
+                                            ? 'opacity-50 cursor-not-allowed border-slate-200 bg-slate-50'
+                                            : storageMode === 'fileSystem'
+                                                ? 'border-blue-500 bg-blue-50 cursor-pointer'
+                                                : 'border-slate-200 hover:border-slate-300 bg-white cursor-pointer'
                                             }`}>
                                             <input
                                                 type="radio"

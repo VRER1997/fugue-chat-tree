@@ -1,5 +1,5 @@
 import React from 'react';
-import { ChevronLeft, ChevronRight, Trash2, FileText, Plus } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Trash2, FileText, Plus, HardDrive, Database } from 'lucide-react';
 import { Canvas } from '../types';
 
 interface CanvasListProps {
@@ -11,6 +11,8 @@ interface CanvasListProps {
     onDeleteCanvas: (canvasId: string) => void;
     onRenameCanvas: (canvasId: string, newTitle: string) => void;
     onNewCanvas: () => void;
+    storageMode?: 'localStorage' | 'fileSystem';
+    fileSystemPath?: string | null;
 }
 
 export const CanvasList: React.FC<CanvasListProps> = ({
@@ -21,7 +23,9 @@ export const CanvasList: React.FC<CanvasListProps> = ({
     onSelectCanvas,
     onDeleteCanvas,
     onRenameCanvas,
-    onNewCanvas
+    onNewCanvas,
+    storageMode = 'localStorage',
+    fileSystemPath = null
 }) => {
     const [hoveredCanvasId, setHoveredCanvasId] = React.useState<string | null>(null);
     const [editingCanvasId, setEditingCanvasId] = React.useState<string | null>(null);
@@ -217,6 +221,32 @@ export const CanvasList: React.FC<CanvasListProps> = ({
                     </div>
                 )}
             </div>
+
+            {/* Storage Path Display */}
+            {!isCollapsed && (
+                <div className="border-t border-slate-200 p-3 bg-slate-50">
+                    <div className="flex items-center gap-2 text-xs text-slate-600">
+                        {storageMode === 'fileSystem' ? (
+                            <>
+                                <HardDrive className="w-3.5 h-3.5 text-blue-600" />
+                                <div className="flex-1 min-w-0">
+                                    <div className="font-medium text-slate-700">File System</div>
+                                    {fileSystemPath && (
+                                        <div className="text-slate-500 truncate" title={fileSystemPath}>
+                                            {fileSystemPath}/chat-tree-data
+                                        </div>
+                                    )}
+                                </div>
+                            </>
+                        ) : (
+                            <>
+                                <Database className="w-3.5 h-3.5 text-slate-500" />
+                                <div className="font-medium text-slate-700">LocalStorage</div>
+                            </>
+                        )}
+                    </div>
+                </div>
+            )}
         </div>
     );
 };
