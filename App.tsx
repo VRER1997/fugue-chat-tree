@@ -220,31 +220,43 @@ const Flow = () => {
 
   // File System Storage Handlers
   const handleStorageModeChange = useCallback(async (mode: StorageMode) => {
+    console.log('[Storage] Changing storage mode to:', mode);
+
     if (mode === 'fileSystem' && !hasFileSystemAccess) {
       // Need to request access first
       const success = await fileSystemService.requestDirectoryAccess();
       if (success) {
         setHasFileSystemAccess(true);
         setStorageMode('fileSystem');
+        localStorage.setItem('storageMode', 'fileSystem'); // Persist to localStorage
+        console.log('[Storage] File system access granted and mode saved');
         // Save metadata
         await fileSystemService.saveMetadata({ activeCanvasId });
+      } else {
+        console.log('[Storage] File system access denied');
       }
     } else {
       setStorageMode(mode);
+      localStorage.setItem('storageMode', mode); // Persist to localStorage
+      console.log('[Storage] Storage mode saved:', mode);
     }
   }, [hasFileSystemAccess, activeCanvasId]);
 
   const handleRequestFileSystemAccess = useCallback(async () => {
+    console.log('[Storage] Requesting file system access...');
     const success = await fileSystemService.requestDirectoryAccess();
     if (success) {
       setHasFileSystemAccess(true);
       setStorageMode('fileSystem');
+      localStorage.setItem('storageMode', 'fileSystem'); // Persist to localStorage
+      console.log('[Storage] File system enabled, migrating existing data...');
       // Optional: migrate existing data
       if (canvases.length > 0) {
         for (const canvas of canvases) {
           await fileSystemService.saveCanvas(canvas);
         }
         await fileSystemService.saveMetadata({ activeCanvasId });
+        console.log('[Storage] Migrated', canvases.length, 'canvases to file system');
       }
     }
     return success;
@@ -620,18 +632,28 @@ const Flow = () => {
     if (isLoaded) return;
 
     const loadData = async () => {
+      console.log('[Init] Starting data load...');
+
+      // Load saved storage mode preference
+      const savedMode = localStorage.getItem('storageMode') as StorageMode | null;
+      console.log('[Init] Saved storage mode:', savedMode);
+
       // Check if file system access was previously granted
       if (fileSystemService.isSupported()) {
         const hasAccess = await fileSystemService.hasDirectoryAccess();
         setHasFileSystemAccess(hasAccess);
+        console.log('[Init] File system access:', hasAccess);
 
-        if (hasAccess) {
+        // If user had selected fileSystem mode and has access, try loading from it
+        if (hasAccess && (savedMode === 'fileSystem' || savedMode === null)) {
           // Try loading from file system first
           try {
             const { canvases: fsCanvases, activeCanvasId: fsActiveId } = await fileSystemService.loadAllCanvases();
 
             if (fsCanvases.length > 0) {
+              console.log('[Init] Loaded', fsCanvases.length, 'canvases from file system');
               setStorageMode('fileSystem');
+              localStorage.setItem('storageMode', 'fileSystem');
               setCanvases(fsCanvases);
               setActiveCanvasId(fsActiveId || fsCanvases[0].id);
 
@@ -661,7 +683,8 @@ const Flow = () => {
         }
       }
 
-      // Try loading new multi-canvas format first
+      // Fall back to localStorage (or if user explicitly chose localStorage mode)
+      console.log('[Init] Loading from localStorage...');
       const savedCanvases = localStorage.getItem(STORAGE_KEY);
       if (savedCanvases) {
         try {
