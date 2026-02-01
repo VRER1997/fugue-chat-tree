@@ -38,13 +38,18 @@ const STORE_NAME = 'directory-handles';
 const HANDLE_KEY = 'root-directory';
 
 // Directory structure constants
-const CHAT_TREE_FOLDER = '.chat-tree';
-const CANVASES_FOLDER = 'canvases';
+const DATA_FOLDER = 'chat-tree-data'; // Changed from .chat-tree to visible folder
 const METADATA_FILE = 'metadata.json';
 
 /**
- * File System Service for persistent storage
+ * File System Service
  * Uses File System Access API to save/load canvas data to local disk
+ * 
+ * Directory structure:
+ * <user-selected-directory>/
+ * └── chat-tree-data/
+ *     ├── metadata.json
+ *     └── canvas-xxx.json (all canvas files in root)
  */
 class FileSystemService {
     private directoryHandle: FileSystemDirectoryHandle | null = null;
@@ -174,16 +179,13 @@ class FileSystemService {
     }
 
     /**
-     * Initialize directory structure (.chat-tree/canvases/)
+     * Initialize directory structure (chat-tree-data/)
      */
     private async initializeDirectoryStructure(): Promise<void> {
         if (!this.directoryHandle) return;
 
-        // Create .chat-tree folder
-        const chatTreeDir = await this.directoryHandle.getDirectoryHandle(CHAT_TREE_FOLDER, { create: true });
-
-        // Create canvases subfolder
-        await chatTreeDir.getDirectoryHandle(CANVASES_FOLDER, { create: true });
+        // Create chat-tree-data folder
+        await this.directoryHandle.getDirectoryHandle(DATA_FOLDER, { create: true });
     }
 
     /**
@@ -222,12 +224,11 @@ class FileSystemService {
             throw new Error('No directory access. Please select a directory first.');
         }
 
-        const chatTreeDir = await this.directoryHandle.getDirectoryHandle(CHAT_TREE_FOLDER);
-        const canvasesDir = await chatTreeDir.getDirectoryHandle(CANVASES_FOLDER);
+        const dataDir = await this.directoryHandle.getDirectoryHandle(DATA_FOLDER);
 
         // Create/overwrite canvas file
         const fileName = `${canvas.id}.json`;
-        const fileHandle = await canvasesDir.getFileHandle(fileName, { create: true });
+        const fileHandle = await dataDir.getFileHandle(fileName, { create: true });
         const writable = await fileHandle.createWritable();
 
         // Write canvas data
@@ -244,8 +245,8 @@ class FileSystemService {
             throw new Error('No directory access. Please select a directory first.');
         }
 
-        const chatTreeDir = await this.directoryHandle.getDirectoryHandle(CHAT_TREE_FOLDER);
-        const fileHandle = await chatTreeDir.getFileHandle(METADATA_FILE, { create: true });
+        const dataDir = await this.directoryHandle.getDirectoryHandle(DATA_FOLDER);
+        const fileHandle = await dataDir.getFileHandle(METADATA_FILE, { create: true });
         const writable = await fileHandle.createWritable();
 
         await writable.write(JSON.stringify(data, null, 2));
@@ -261,15 +262,13 @@ class FileSystemService {
         }
 
         try {
-            const chatTreeDir = await this.directoryHandle.getDirectoryHandle(CHAT_TREE_FOLDER);
-            const canvasesDir = await chatTreeDir.getDirectoryHandle(CANVASES_FOLDER);
-
+            const dataDir = await this.directoryHandle.getDirectoryHandle(DATA_FOLDER);
             const canvases: Canvas[] = [];
 
-            // Iterate through all files in canvases directory
+            // Iterate through all files in data directory
             // @ts-ignore
-            for await (const entry of canvasesDir.values()) {
-                if (entry.kind === 'file' && entry.name.endsWith('.json')) {
+            for await (const entry of dataDir.values()) {
+                if (entry.kind === 'file' && entry.name.endsWith('.json') && entry.name !== METADATA_FILE) {
                     const fileHandle = entry as FileSystemFileHandle;
                     const file = await fileHandle.getFile();
                     const text = await file.text();
@@ -286,7 +285,7 @@ class FileSystemService {
             // Load metadata
             let activeCanvasId: string | null = null;
             try {
-                const metadataHandle = await chatTreeDir.getFileHandle(METADATA_FILE);
+                const metadataHandle = await dataDir.getFileHandle(METADATA_FILE);
                 const metadataFile = await metadataHandle.getFile();
                 const metadataText = await metadataFile.text();
                 const metadata = JSON.parse(metadataText);
@@ -311,12 +310,10 @@ class FileSystemService {
             throw new Error('No directory access. Please select a directory first.');
         }
 
-        const chatTreeDir = await this.directoryHandle.getDirectoryHandle(CHAT_TREE_FOLDER);
-        const canvasesDir = await chatTreeDir.getDirectoryHandle(CANVASES_FOLDER);
-
+        const dataDir = await this.directoryHandle.getDirectoryHandle(DATA_FOLDER);
         const fileName = `${canvasId}.json`;
         // @ts-ignore
-        await canvasesDir.removeEntry(fileName);
+        await dataDir.removeEntry(fileName);
     }
 
     /**
