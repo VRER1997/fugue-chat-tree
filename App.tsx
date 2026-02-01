@@ -86,10 +86,11 @@ const Flow = () => {
   const saveTimerRef = React.useRef<NodeJS.Timeout | null>(null);
 
   // Node dimensions for collision detection
+  // Heights updated to match actual initial rendered size (min-height) to prevent large gaps
   const NODE_SIZES = {
-    chatNode: { width: 412, height: 400 },      // Approximate ChatNode size
-    researchNode: { width: 600, height: 500 },   // Approximate ResearchNode size
-    noteNode: { width: 500, height: 400 }       // Approximate NoteNode size
+    chatNode: { width: 412, height: 200 },
+    researchNode: { width: 600, height: 330 },
+    noteNode: { width: 500, height: 200 }
   };
 
   // Helper to check if two rectangles overlap (with padding)
