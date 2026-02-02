@@ -3,6 +3,7 @@ import {
   ReactFlow,
   Background,
   Controls,
+  MiniMap,
   useNodesState,
   useEdgesState,
   addEdge,
@@ -1342,6 +1343,21 @@ const Flow = () => {
             color="#cbd5e1"
           />
           <Controls className="bg-white shadow-lg border border-slate-200 rounded-lg overflow-hidden text-slate-600" />
+          <MiniMap
+            nodeColor={(node) => {
+              switch (node.type) {
+                case 'chatNode': return '#3b82f6';
+                case 'researchNode': return '#8b5cf6';
+                case 'noteNode': return '#f59e0b';
+                default: return '#64748b';
+              }
+            }}
+            nodeStrokeWidth={3}
+            zoomable
+            pannable
+            className="bg-white/90 backdrop-blur-sm border border-slate-200 rounded-lg shadow-lg"
+            style={{ width: 150, height: 100 }}
+          />
 
           {/* Create Node Buttons */}
           <div className="absolute top-4 left-4 z-50 flex gap-2">
