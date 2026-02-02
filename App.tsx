@@ -31,7 +31,8 @@ import {
   X,
   Undo2,
   Redo2,
-  Focus
+  Focus,
+  List
 } from 'lucide-react';
 import { ChatNode } from './components/ChatNode';
 import { ResearchNode } from './components/ResearchNode';
@@ -39,6 +40,7 @@ import { NoteNode } from './components/NoteNode';
 import { ChatNodeData, ResearchNodeData, NoteNodeData, AppNode, ChatNodeType, ResearchNodeType, NoteNodeType, Canvas } from './types';
 import { SettingsModal } from './components/SettingsModal';
 import { CanvasList } from './components/CanvasList';
+import { ContextPanel } from './components/ContextPanel';
 import { generateCanvasTitle } from './services/titleGenerator';
 import { fileSystemService } from './services/fileSystem';
 
@@ -105,6 +107,9 @@ const Flow = () => {
   // Focus Mode state
   const [focusMode, setFocusMode] = React.useState(false);
   const [focusedNodeId, setFocusedNodeId] = React.useState<string | null>(null);
+
+  // Context Panel state
+  const [isContextPanelOpen, setIsContextPanelOpen] = React.useState(false);
 
   // Node dimensions for collision detection
   // Heights updated to match actual initial rendered size (min-height) to prevent large gaps
@@ -1413,6 +1418,15 @@ const Flow = () => {
               <Focus className="w-5 h-5" />
             </button>
             <button
+              onClick={() => setIsContextPanelOpen(prev => !prev)}
+              className={`w-9 h-9 rounded-lg shadow-sm border flex items-center justify-center transition-colors ${isContextPanelOpen
+                ? 'bg-green-500 text-white border-green-600 hover:bg-green-600'
+                : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'}`}
+              title="Context Panel"
+            >
+              <List className="w-5 h-5" />
+            </button>
+            <button
               onClick={onSave}
               className="w-9 h-9 bg-white hover:bg-slate-50 text-slate-700 rounded-lg shadow-sm border border-slate-200 flex items-center justify-center transition-colors"
               title="Save JSON"
@@ -1524,6 +1538,14 @@ const Flow = () => {
           </div>
         )}
 
+
+        <ContextPanel
+          isOpen={isContextPanelOpen}
+          onClose={() => setIsContextPanelOpen(false)}
+          nodeId={focusedNodeId}
+          nodes={nodes}
+          edges={edges}
+        />
 
         <SettingsModal
           isOpen={isSettingsOpen}
