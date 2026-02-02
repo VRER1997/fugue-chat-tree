@@ -99,7 +99,7 @@ const Flow = () => {
     size1: { width: number; height: number },
     pos2: { x: number; y: number },
     size2: { width: number; height: number },
-    padding: number = 50 // Extra space between nodes
+    padding: number = 100 // Extra space between nodes
   ): boolean => {
     return !(
       pos1.x + size1.width + padding < pos2.x ||
@@ -129,7 +129,7 @@ const Flow = () => {
     const startY = referenceNode.position.y;
 
     // Fixed spacing in canvas coordinates for consistent visual distance
-    const spacing = 10;
+    const spacing = 100;
 
     const refWidth = NODE_SIZES[referenceNode.type as keyof typeof NODE_SIZES]?.width || 400;
     const refHeight = NODE_SIZES[referenceNode.type as keyof typeof NODE_SIZES]?.height || 400;
@@ -166,8 +166,8 @@ const Flow = () => {
 
     // Fallback position if all preferred positions are occupied
     return {
-      x: startX + refWidth + 300,
-      y: startY + (Math.random() * 200 - 100)
+      x: startX + refWidth + 20,
+      y: startY
     };
   };
 
@@ -552,15 +552,13 @@ const Flow = () => {
 
       const newNodeId = `node-${Date.now()}`;
 
-      // Calculate position for new node
-      // Research nodes are wider (600px) than Chat nodes (412px)
-      // Standard offset for Chat Node: 600px
-      // Offset for Research Node: 800px
-      const xOffset = sourceNode.type === 'researchNode' ? 800 : 600;
+      // Calculate position for new node based on actual node size
+      const sourceNodeWidth = NODE_SIZES[sourceNode.type as keyof typeof NODE_SIZES]?.width || 412;
+      const xOffset = sourceNodeWidth + 100; // Place to the right with 100px spacing
 
       const newPosition = {
         x: sourceNode.position.x + xOffset,
-        y: sourceNode.position.y + (Math.random() * 100 - 50),
+        y: sourceNode.position.y, // Align horizontally, no vertical offset
       };
 
       // Inherit settings from parent if available, otherwise defaults
