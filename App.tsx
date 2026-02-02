@@ -30,7 +30,8 @@ import {
   Search,
   X,
   Undo2,
-  Redo2
+  Redo2,
+  Focus
 } from 'lucide-react';
 import { ChatNode } from './components/ChatNode';
 import { ResearchNode } from './components/ResearchNode';
@@ -100,6 +101,10 @@ const Flow = () => {
   const [historyIndex, setHistoryIndex] = React.useState(-1);
   const isUndoRedoAction = React.useRef(false);
   const historyDebounceRef = React.useRef<NodeJS.Timeout | null>(null);
+
+  // Focus Mode state
+  const [focusMode, setFocusMode] = React.useState(false);
+  const [focusedNodeId, setFocusedNodeId] = React.useState<string | null>(null);
 
   // Node dimensions for collision detection
   // Heights updated to match actual initial rendered size (min-height) to prevent large gaps
@@ -442,6 +447,108 @@ const Flow = () => {
     window.addEventListener('keydown', handleUndoRedoKey);
     return () => window.removeEventListener('keydown', handleUndoRedoKey);
   }, [handleUndo, handleRedo]);
+
+  // Get nodes in the current branch (ancestors + descendants of focused node)
+  const getNodesInBranch = useCallback((nodeId: string): Set<string> => {
+    const branchNodes = new Set<string>();
+
+    // Add the focused node itself
+    branchNodes.add(nodeId);
+
+    // Get ancestors (traverse up)
+    let currentId = nodeId;
+    while (true) {
+      const parentEdge = edges.find(e => e.target === currentId);
+      if (!parentEdge) break;
+      branchNodes.add(parentEdge.source);
+      currentId = parentEdge.source;
+    }
+
+    // Get descendants (traverse down using BFS)
+    const queue = [nodeId];
+    while (queue.length > 0) {
+      const current = queue.shift()!;
+      const childEdges = edges.filter(e => e.source === current);
+      for (const edge of childEdges) {
+        if (!branchNodes.has(edge.target)) {
+          branchNodes.add(edge.target);
+          queue.push(edge.target);
+        }
+      }
+    }
+
+    return branchNodes;
+  }, [edges]);
+
+  // Track selected node for focus mode
+  React.useEffect(() => {
+    const selectedNode = nodes.find(n => n.selected);
+    if (selectedNode) {
+      setFocusedNodeId(selectedNode.id);
+    }
+  }, [nodes]);
+
+  // Keyboard shortcut for focus mode (F key)
+  React.useEffect(() => {
+    const handleFocusKey = (e: KeyboardEvent) => {
+      // Only trigger if not typing in an input
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+
+      if (e.key === 'f' || e.key === 'F') {
+        setFocusMode(prev => !prev);
+      }
+    };
+
+    window.addEventListener('keydown', handleFocusKey);
+    return () => window.removeEventListener('keydown', handleFocusKey);
+  }, []);
+
+  // Calculate branch nodes for focus mode
+  const branchNodeIds = React.useMemo(() => {
+    if (!focusMode || !focusedNodeId) return new Set<string>();
+    return getNodesInBranch(focusedNodeId);
+  }, [focusMode, focusedNodeId, getNodesInBranch]);
+
+  // Apply focus mode styles dynamically
+  React.useEffect(() => {
+    // Create or update style element
+    let styleEl = document.getElementById('focus-mode-styles') as HTMLStyleElement;
+    if (!styleEl) {
+      styleEl = document.createElement('style');
+      styleEl.id = 'focus-mode-styles';
+      document.head.appendChild(styleEl);
+    }
+
+    if (focusMode && branchNodeIds.size > 0) {
+      // Generate CSS to fade non-branch nodes
+      const fadedNodeSelectors = nodes
+        .filter(n => !branchNodeIds.has(n.id))
+        .map(n => `.react-flow__node[data-id="${n.id}"]`)
+        .join(', ');
+
+      if (fadedNodeSelectors) {
+        styleEl.textContent = `
+          ${fadedNodeSelectors} {
+            opacity: 0.25 !important;
+            transition: opacity 0.3s ease;
+          }
+          .react-flow__node {
+            transition: opacity 0.3s ease;
+          }
+        `;
+      } else {
+        styleEl.textContent = '';
+      }
+    } else {
+      styleEl.textContent = '';
+    }
+
+    return () => {
+      // Cleanup on unmount
+      const el = document.getElementById('focus-mode-styles');
+      if (el) el.textContent = '';
+    };
+  }, [focusMode, branchNodeIds, nodes]);
 
   // Save snapshots on node/edge changes
   React.useEffect(() => {
@@ -1295,6 +1402,15 @@ const Flow = () => {
               title="Search (⌘F)"
             >
               <Search className="w-5 h-5" />
+            </button>
+            <button
+              onClick={() => setFocusMode(prev => !prev)}
+              className={`w-9 h-9 rounded-lg shadow-sm border flex items-center justify-center transition-colors ${focusMode
+                ? 'bg-blue-500 text-white border-blue-600 hover:bg-blue-600'
+                : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'}`}
+              title={`Focus Mode (F) - ${focusMode ? 'ON' : 'OFF'}`}
+            >
+              <Focus className="w-5 h-5" />
             </button>
             <button
               onClick={onSave}
