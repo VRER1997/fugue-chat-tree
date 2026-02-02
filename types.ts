@@ -15,6 +15,7 @@ export interface ChatNodeData extends Record<string, unknown> {
   onCollapse?: (id: string, shouldCollapse: boolean) => void;
   width?: number;
   height?: number;
+  tokenUsage?: { prompt: number; completion: number; total: number };
 }
 
 export type ResearchStepStatus = 'pending' | 'running' | 'done';

@@ -1,7 +1,7 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react';
 import ReactMarkdown from 'react-markdown';
 import { Handle, Position, NodeProps, useReactFlow } from '@xyflow/react';
-import { MessageSquareQuote, Send, Sparkles, Trash2, ChevronsDown, ChevronsUp, GitFork, Globe, Brain } from 'lucide-react';
+import { MessageSquareQuote, Send, Sparkles, Trash2, ChevronsDown, ChevronsUp, GitFork, Globe, Brain, StopCircle } from 'lucide-react';
 import OpenAI from 'openai';
 import remarkMath from 'remark-math';
 import remarkGfm from 'remark-gfm';
@@ -22,6 +22,9 @@ export const ChatNode = ({ id, data, isConnectable, selected }: NodeProps<ChatNo
   const [isSearchEnabled, setIsSearchEnabled] = useState(data.isSearchEnabled || false);
   const [reasoningMode, setReasoningMode] = useState<NonNullable<ChatNodeData['reasoningMode']>>((data.reasoningMode as any) || 'off');
   const [showReasoningMenu, setShowReasoningMenu] = useState(false);
+  const [tokenStats, setTokenStats] = useState<{ prompt: number; completion: number; total: number } | null>(
+    data.tokenUsage || null
+  );
 
   // Selection State
   const [showQuoteBtn, setShowQuoteBtn] = useState(false);
@@ -31,6 +34,7 @@ export const ChatNode = ({ id, data, isConnectable, selected }: NodeProps<ChatNo
   const nodeRef = useRef<HTMLDivElement>(null);
   const reasoningMenuRef = useRef<HTMLDivElement>(null);
   const reasoningToggleRef = useRef<HTMLButtonElement>(null);
+  const abortControllerRef = useRef<AbortController | null>(null);
 
   // Resizable functionality
   const [nodeSize, setNodeSize] = useState({
@@ -134,6 +138,9 @@ export const ChatNode = ({ id, data, isConnectable, selected }: NodeProps<ChatNo
       const apiUrl = storedUrl || import.meta.env.VITE_GEMINI_API_URL;
 
       // Initialize OpenAI Client
+      const abortController = new AbortController();
+      abortControllerRef.current = abortController;
+
       const openai = new OpenAI({
         apiKey: apiKey,
         baseURL: apiUrl,
@@ -279,7 +286,9 @@ export const ChatNode = ({ id, data, isConnectable, selected }: NodeProps<ChatNo
         completionParams.tool_choice = 'auto';
       }
 
-      const stream = await openai.chat.completions.create(completionParams) as AsyncIterable<OpenAI.Chat.Completions.ChatCompletionChunk>;
+      const stream = await openai.chat.completions.create(completionParams, {
+        signal: abortController.signal
+      }) as AsyncIterable<OpenAI.Chat.Completions.ChatCompletionChunk>;
 
       let fullText = "";
       let toolCallArgs = "";
@@ -408,11 +417,38 @@ INSTRUCTIONS:
       // Sync response to node data
       updateNodeData(id, { aiResponse: fullText });
 
-    } catch (error) {
-      console.error("AI Error:", error);
-      setResponse("Error generating response. Please check your API key and configuration.");
+      // Estimate token usage (rough estimate: ~4 chars per token for English, ~2 for Chinese)
+      const estimateTokens = (text: string) => Math.ceil(text.length / 3);
+      const promptTokens = estimateTokens(currentPromptText + historyMessages.map(m => m.content).join(''));
+      const completionTokens = estimateTokens(fullText);
+      const stats = {
+        prompt: promptTokens,
+        completion: completionTokens,
+        total: promptTokens + completionTokens
+      };
+      setTokenStats(stats);
+      updateNodeData(id, { tokenUsage: stats });
+
+    } catch (error: any) {
+      // Check if it's an abort error
+      if (error?.name === 'AbortError' || error?.message?.includes('aborted')) {
+        console.log('Generation stopped by user');
+        // Keep the partial response that was already generated
+      } else {
+        console.error("AI Error:", error);
+        setResponse("Error generating response. Please check your API key and configuration.");
+      }
     } finally {
+      abortControllerRef.current = null;
       setIsGenerating(false);
+    }
+  };
+
+  // Stop generation handler
+  const handleStop = () => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+      abortControllerRef.current = null;
     }
   };
 
@@ -606,21 +642,27 @@ INSTRUCTIONS:
           >
             <Globe className={`w-4 h-4 ${isSearchEnabled ? 'animate-pulse' : ''}`} />
           </button>
-          <button
-            onClick={handleGenerate}
-            disabled={!inputText.trim() || isGenerating}
-            className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-lg text-sm font-medium transition-all ${inputText.trim() && !isGenerating
-              ? 'bg-blue-600 text-white hover:bg-blue-700 shadow-md'
-              : 'bg-slate-100 text-slate-400 cursor-not-allowed'
-              } nodrag`}
-          >
-            {isGenerating ? (
-              <Sparkles className="w-4 h-4 animate-spin" />
-            ) : (
+          {isGenerating ? (
+            <button
+              onClick={handleStop}
+              className="flex-1 flex items-center justify-center gap-2 py-2 rounded-lg text-sm font-medium transition-all bg-red-500 text-white hover:bg-red-600 shadow-md nodrag"
+            >
+              <StopCircle className="w-4 h-4" />
+              Stop
+            </button>
+          ) : (
+            <button
+              onClick={handleGenerate}
+              disabled={!inputText.trim()}
+              className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-lg text-sm font-medium transition-all ${inputText.trim()
+                ? 'bg-blue-600 text-white hover:bg-blue-700 shadow-md'
+                : 'bg-slate-100 text-slate-400 cursor-not-allowed'
+                } nodrag`}
+            >
               <Send className="w-4 h-4 text-white/90" />
-            )}
-            {isGenerating ? 'Thinking...' : 'Generate Answer'}
-          </button>
+              Generate Answer
+            </button>
+          )}
         </div>
       </div>
 
@@ -682,6 +724,16 @@ INSTRUCTIONS:
               {response}
             </ReactMarkdown>
           </div>
+
+          {/* Token Statistics */}
+          {tokenStats && !isGenerating && (
+            <div className="mt-2 pt-2 border-t border-slate-200 flex items-center gap-3 text-[10px] text-slate-400">
+              <span>📊 Tokens:</span>
+              <span>输入 {tokenStats.prompt}</span>
+              <span>输出 {tokenStats.completion}</span>
+              <span className="font-medium text-slate-500">总计 {tokenStats.total}</span>
+            </div>
+          )}
 
           {/* Gradient Overlay when collapsed */}
           {isResponseCollapsed && (

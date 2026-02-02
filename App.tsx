@@ -26,7 +26,11 @@ import {
   Quote as LucideQuote,
   Plus,
   Github,
-  GitBranch
+  GitBranch,
+  Search,
+  X,
+  Undo2,
+  Redo2
 } from 'lucide-react';
 import { ChatNode } from './components/ChatNode';
 import { ResearchNode } from './components/ResearchNode';
@@ -84,6 +88,18 @@ const Flow = () => {
   const [hasFileSystemAccess, setHasFileSystemAccess] = React.useState(false);
   const [saveStatus, setSaveStatus] = React.useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
   const saveTimerRef = React.useRef<NodeJS.Timeout | null>(null);
+
+  // Search state
+  const [isSearchOpen, setIsSearchOpen] = React.useState(false);
+  const [searchQuery, setSearchQuery] = React.useState('');
+  const [searchResults, setSearchResults] = React.useState<Array<{ nodeId: string; type: string; content: string; field: string }>>([]);
+  const searchInputRef = React.useRef<HTMLInputElement>(null);
+
+  // Undo/Redo state
+  const [history, setHistory] = React.useState<Array<{ nodes: AppNode[]; edges: Edge[] }>>([]);
+  const [historyIndex, setHistoryIndex] = React.useState(-1);
+  const isUndoRedoAction = React.useRef(false);
+  const historyDebounceRef = React.useRef<NodeJS.Timeout | null>(null);
 
   // Node dimensions for collision detection
   // Heights updated to match actual initial rendered size (min-height) to prevent large gaps
@@ -259,7 +275,179 @@ const Flow = () => {
     }, 100);
   };
 
-  // File System Storage Handlers
+  // Search functionality
+  const handleSearch = useCallback((query: string) => {
+    if (!query.trim()) {
+      setSearchResults([]);
+      return;
+    }
+
+    const lowerQuery = query.toLowerCase();
+    const results: Array<{ nodeId: string; type: string; content: string; field: string }> = [];
+
+    nodes.forEach(node => {
+      const nodeData = node.data;
+
+      // Search in ChatNode
+      if (node.type === 'chatNode') {
+        const chatData = nodeData as ChatNodeData;
+        if (chatData.inputText && String(chatData.inputText).toLowerCase().includes(lowerQuery)) {
+          results.push({ nodeId: node.id, type: 'Chat', content: String(chatData.inputText).slice(0, 100), field: '问题' });
+        }
+        if (chatData.aiResponse && String(chatData.aiResponse).toLowerCase().includes(lowerQuery)) {
+          results.push({ nodeId: node.id, type: 'Chat', content: String(chatData.aiResponse).slice(0, 100), field: '回答' });
+        }
+      }
+
+      // Search in NoteNode
+      if (node.type === 'noteNode') {
+        const noteData = nodeData as NoteNodeData;
+        if (noteData.content && String(noteData.content).toLowerCase().includes(lowerQuery)) {
+          results.push({ nodeId: node.id, type: 'Note', content: String(noteData.content).slice(0, 100), field: '内容' });
+        }
+      }
+
+      // Search in ResearchNode
+      if (node.type === 'researchNode') {
+        const researchData = nodeData as ResearchNodeData;
+        if (researchData.query && String(researchData.query).toLowerCase().includes(lowerQuery)) {
+          results.push({ nodeId: node.id, type: 'Research', content: String(researchData.query).slice(0, 100), field: '查询' });
+        }
+        if (researchData.answer && String(researchData.answer).toLowerCase().includes(lowerQuery)) {
+          results.push({ nodeId: node.id, type: 'Research', content: String(researchData.answer).slice(0, 100), field: '答案' });
+        }
+      }
+    });
+
+    setSearchResults(results);
+  }, [nodes]);
+
+  // Navigate to search result
+  const handleSearchResultClick = useCallback((nodeId: string) => {
+    const node = getNode(nodeId);
+    if (node) {
+      setCenter(node.position.x + 200, node.position.y + 150, {
+        zoom: getZoom(),
+        duration: 400
+      });
+      // Select the node
+      setNodes(nds => nds.map(n => ({ ...n, selected: n.id === nodeId })));
+    }
+    setIsSearchOpen(false);
+    setSearchQuery('');
+    setSearchResults([]);
+  }, [getNode, setCenter, getZoom, setNodes]);
+
+  // Keyboard shortcut for search (Cmd+F / Ctrl+F)
+  React.useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'f') {
+        e.preventDefault();
+        setIsSearchOpen(true);
+        setTimeout(() => searchInputRef.current?.focus(), 100);
+      }
+      if (e.key === 'Escape' && isSearchOpen) {
+        setIsSearchOpen(false);
+        setSearchQuery('');
+        setSearchResults([]);
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isSearchOpen]);
+
+  // Save snapshot to history (debounced)
+  const saveSnapshot = useCallback(() => {
+    if (isUndoRedoAction.current) {
+      isUndoRedoAction.current = false;
+      return;
+    }
+
+    if (historyDebounceRef.current) {
+      clearTimeout(historyDebounceRef.current);
+    }
+
+    historyDebounceRef.current = setTimeout(() => {
+      const currentNodes = getNodes();
+      const currentEdges = getEdges();
+
+      // Don't save if state is effectively empty
+      if (currentNodes.length === 0) return;
+
+      setHistory(prev => {
+        // Remove any future states if we're in the middle of history
+        const newHistory = prev.slice(0, historyIndex + 1);
+        // Add current state
+        newHistory.push({
+          nodes: JSON.parse(JSON.stringify(currentNodes)),
+          edges: JSON.parse(JSON.stringify(currentEdges))
+        });
+        // Limit history size to 50 entries
+        if (newHistory.length > 50) {
+          newHistory.shift();
+          return newHistory;
+        }
+        setHistoryIndex(newHistory.length - 1);
+        return newHistory;
+      });
+    }, 500);
+  }, [getNodes, getEdges, historyIndex]);
+
+  // Undo function
+  const handleUndo = useCallback(() => {
+    if (historyIndex <= 0) return;
+
+    isUndoRedoAction.current = true;
+    const newIndex = historyIndex - 1;
+    const prevState = history[newIndex];
+
+    if (prevState) {
+      // Restore nodes - callbacks will be added by existing useEffect
+      setNodes(prevState.nodes as AppNode[]);
+      setEdges(prevState.edges);
+      setHistoryIndex(newIndex);
+    }
+  }, [history, historyIndex, setNodes, setEdges]);
+
+  // Redo function
+  const handleRedo = useCallback(() => {
+    if (historyIndex >= history.length - 1) return;
+
+    isUndoRedoAction.current = true;
+    const newIndex = historyIndex + 1;
+    const nextState = history[newIndex];
+
+    if (nextState) {
+      // Restore nodes - callbacks will be added by existing useEffect
+      setNodes(nextState.nodes as AppNode[]);
+      setEdges(nextState.edges);
+      setHistoryIndex(newIndex);
+    }
+  }, [history, historyIndex, setNodes, setEdges]);
+
+  // Keyboard shortcuts for undo/redo
+  React.useEffect(() => {
+    const handleUndoRedoKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'z') {
+        e.preventDefault();
+        if (e.shiftKey) {
+          handleRedo();
+        } else {
+          handleUndo();
+        }
+      }
+    };
+
+    window.addEventListener('keydown', handleUndoRedoKey);
+    return () => window.removeEventListener('keydown', handleUndoRedoKey);
+  }, [handleUndo, handleRedo]);
+
+  // Save snapshots on node/edge changes
+  React.useEffect(() => {
+    saveSnapshot();
+  }, [nodes, edges]);
+
   const handleStorageModeChange = useCallback(async (mode: StorageMode) => {
     console.log('[Storage] Changing storage mode to:', mode);
 
@@ -1074,7 +1262,6 @@ const Flow = () => {
             </button>
           </div>
 
-          {/* Action Buttons */}
           <div className="absolute top-4 left-4 mt-14 z-50 flex gap-2">
             <button
               onClick={onClear}
@@ -1082,6 +1269,32 @@ const Flow = () => {
               title="Clear Canvas"
             >
               <RotateCcw className="w-5 h-5" />
+            </button>
+            <button
+              onClick={handleUndo}
+              disabled={historyIndex <= 0}
+              className={`w-9 h-9 bg-white rounded-lg shadow-sm border border-slate-200 flex items-center justify-center transition-colors ${historyIndex <= 0 ? 'text-slate-300 cursor-not-allowed' : 'hover:bg-slate-50 text-slate-700'}`}
+              title="Undo (⌘Z)"
+            >
+              <Undo2 className="w-5 h-5" />
+            </button>
+            <button
+              onClick={handleRedo}
+              disabled={historyIndex >= history.length - 1}
+              className={`w-9 h-9 bg-white rounded-lg shadow-sm border border-slate-200 flex items-center justify-center transition-colors ${historyIndex >= history.length - 1 ? 'text-slate-300 cursor-not-allowed' : 'hover:bg-slate-50 text-slate-700'}`}
+              title="Redo (⌘⇧Z)"
+            >
+              <Redo2 className="w-5 h-5" />
+            </button>
+            <button
+              onClick={() => {
+                setIsSearchOpen(true);
+                setTimeout(() => searchInputRef.current?.focus(), 100);
+              }}
+              className="w-9 h-9 bg-white hover:bg-slate-50 text-slate-700 rounded-lg shadow-sm border border-slate-200 flex items-center justify-center transition-colors"
+              title="Search (⌘F)"
+            >
+              <Search className="w-5 h-5" />
             </button>
             <button
               onClick={onSave}
@@ -1137,6 +1350,63 @@ const Flow = () => {
             <p className="text-xs text-slate-500 italic">Infinite canvas for deep thinker</p>
           </div>
         </div>
+
+        {/* Search Panel */}
+        {isSearchOpen && (
+          <div className="absolute top-4 left-1/2 -translate-x-1/2 z-50 w-[500px] max-w-[90vw]">
+            <div className="bg-white/95 backdrop-blur-md rounded-xl shadow-2xl border border-slate-200 overflow-hidden">
+              <div className="flex items-center gap-2 p-3 border-b border-slate-100">
+                <Search className="w-5 h-5 text-slate-400" />
+                <input
+                  ref={searchInputRef}
+                  type="text"
+                  value={searchQuery}
+                  onChange={(e) => {
+                    setSearchQuery(e.target.value);
+                    handleSearch(e.target.value);
+                  }}
+                  placeholder="搜索节点内容... (Esc 关闭)"
+                  className="flex-1 bg-transparent border-none outline-none text-sm text-slate-700 placeholder:text-slate-400"
+                  autoFocus
+                />
+                <button
+                  onClick={() => {
+                    setIsSearchOpen(false);
+                    setSearchQuery('');
+                    setSearchResults([]);
+                  }}
+                  className="p-1 hover:bg-slate-100 rounded"
+                >
+                  <X className="w-4 h-4 text-slate-400" />
+                </button>
+              </div>
+              {searchResults.length > 0 && (
+                <div className="max-h-[300px] overflow-y-auto">
+                  {searchResults.map((result, idx) => (
+                    <button
+                      key={`${result.nodeId}-${idx}`}
+                      onClick={() => handleSearchResultClick(result.nodeId)}
+                      className="w-full px-4 py-3 text-left hover:bg-slate-50 border-b border-slate-50 last:border-none transition-colors"
+                    >
+                      <div className="flex items-center gap-2 mb-1">
+                        <span className="text-[10px] px-1.5 py-0.5 bg-blue-100 text-blue-600 rounded font-medium">
+                          {result.type}
+                        </span>
+                        <span className="text-[10px] text-slate-400">{result.field}</span>
+                      </div>
+                      <p className="text-xs text-slate-600 line-clamp-2">{result.content}...</p>
+                    </button>
+                  ))}
+                </div>
+              )}
+              {searchQuery && searchResults.length === 0 && (
+                <div className="p-4 text-center text-sm text-slate-400">
+                  未找到匹配结果
+                </div>
+              )}
+            </div>
+          </div>
+        )}
 
 
         <SettingsModal
